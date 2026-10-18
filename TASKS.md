@@ -46,38 +46,39 @@ Items marked `[x]` have been implemented and verified. Items marked `[ ]` repres
 
 ---
 
-## Phase 2: Input Validation, Parser & Synthetic Datasets (PLANNED)
-- [ ] Define immutable Pydantic/dataclass schema for flow records in `src/netsleuth/schema.py`.
-- [ ] Implement robust CSV parser in `src/netsleuth/parser.py`:
-  - [ ] Column validation and missing column handling.
-  - [ ] Timestamp parsing to UTC and chronological sorting.
-  - [ ] IP address formatting and port range validation.
-  - [ ] Malformed line filtering and error telemetry.
-- [ ] Implement deterministic synthetic dataset generator script:
-  - [ ] Scenario A: Pure benign enterprise baseline.
-  - [ ] Scenario B: Internal horizontal port scan (reconnaissance).
-  - [ ] Scenario C: External/lateral host sweep (discovery).
-  - [ ] Scenario D: Suspicious high-volume outbound data exfiltration.
-  - [ ] Scenario E: Multi-stage blended attack (reconnaissance -> lateral movement -> exfiltration).
-- [ ] Save reproducible benchmark datasets in `data/synthetic/`.
-- [ ] Unit tests for parser validation and edge cases in `tests/test_parser.py`.
+## Phase 2: Input Validation, Parser & Synthetic Datasets (COMPLETED)
+- [x] Define immutable schema and validation contracts in `src/netsleuth/schema.py`.
+- [x] Implement robust CSV parser in `src/netsleuth/parser.py`:
+  - [x] Column validation and missing column handling (`SchemaValidationError`).
+  - [x] Timestamp parsing to UTC and chronological sorting.
+  - [x] IP address formatting (IPv4) and port range validation (1–65535), non-negative byte count.
+  - [x] Malformed line filtering, strict mode toggle, and error telemetry.
+- [x] Implement deterministic synthetic dataset generator in `src/netsleuth/synthetic.py`:
+  - [x] Scenario 1: Pure benign enterprise baseline (`scenario_01_benign.csv`).
+  - [x] Scenario 2: Internal vertical port scan reconnaissance (`scenario_02_port_scan.csv`).
+  - [x] Scenario 3: Horizontal discovery host sweep (`scenario_03_host_scan.csv`).
+  - [x] Scenario 4: Suspicious high-volume outbound data exfiltration (`scenario_04_exfiltration.csv`).
+  - [x] Scenario 5: Multi-stage blended APT attack (`scenario_05_blended_attack.csv`).
+- [x] Save reproducible benchmark datasets in `data/synthetic/`.
+- [x] Comprehensive unit tests (15 test cases passing) in `tests/test_parser.py`.
 
 ---
 
-## Phase 3: Detection Engine (PLANNED)
-- [ ] Implement Rule 1: Vertical Port Scan detector in `src/netsleuth/detectors.py`.
-  - [ ] Sliding time-window grouping by source IP and destination IP.
-  - [ ] Distinct destination port threshold check.
-  - [ ] Explainable alert payload with metadata and raw flow IDs.
-- [ ] Implement Rule 2: Horizontal Host Scan detector in `src/netsleuth/detectors.py`.
-  - [ ] Sliding time-window grouping by source IP.
-  - [ ] Distinct destination IP threshold check.
-  - [ ] Alert payload generation with evidence summary.
-- [ ] Implement Rule 3: Outbound Data Volume Spike detector in `src/netsleuth/detectors.py`.
-  - [ ] Flow direction filtering (`OUTBOUND`).
-  - [ ] Byte threshold / rolling volume spike detection.
-  - [ ] Alert payload generation with byte count and destination details.
-- [ ] Unit tests for each detection rule in `tests/test_detectors.py`.
+## Phase 3: Detection Engine (COMPLETED)
+- [x] Implement Rule 1: Vertical Port Scan detector in `src/netsleuth/detectors.py`.
+  - [x] Sliding time-window grouping by source IP and destination IP.
+  - [x] Distinct destination port threshold check.
+  - [x] Explainable alert payload with metadata and raw flow IDs.
+- [x] Implement Rule 2: Horizontal Host Scan detector in `src/netsleuth/detectors.py`.
+  - [x] Sliding time-window grouping by source IP.
+  - [x] Distinct destination IP threshold check.
+  - [x] Alert payload generation with evidence summary.
+- [x] Implement Rule 3: Outbound Data Volume Spike detector in `src/netsleuth/detectors.py`.
+  - [x] Flow direction filtering (`OUTBOUND`, `ACCEPT`).
+  - [x] Byte threshold rolling volume spike detection.
+  - [x] Alert payload generation with byte count and destination details.
+- [x] Master orchestrator `run_all_detectors()`.
+- [x] Unit tests for each detection rule in `tests/test_detectors.py` (11 passing tests).
 
 ---
 
