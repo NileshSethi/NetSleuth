@@ -1,0 +1,92 @@
+# ==============================================================================
+# NetSleuth - .gitignore
+# ==============================================================================
+# Defensive cybersecurity network analysis & timeline reconstruction tool.
+# Rules ensure credentials, private raw data, build artifacts, and caches are
+# never tracked in version control, while synthetic datasets and configs are kept.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Python artifacts
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+wheels/
+*.so
+
+# ------------------------------------------------------------------------------
+# Virtual environments
+# ------------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------------------------
+# Secrets, credentials and sensitive configuration
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+credentials*.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ------------------------------------------------------------------------------
+# Test, lint, coverage and cache artifacts
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+# ------------------------------------------------------------------------------
+# Logs and local databases
+# ------------------------------------------------------------------------------
+*.log
+logs/
+*.sqlite3
+*.db
+
+# ------------------------------------------------------------------------------
+# Private, confidential, and generated data
+# Note: data/synthetic/ is deliberately tracked as it contains safe benchmark data.
+# ------------------------------------------------------------------------------
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/private/
+data/real/
+outputs/
+artifacts/
+reports/generated/
+
+# ------------------------------------------------------------------------------
+# Operating system and editor files
+# ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.ipynb_checkpoints/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
