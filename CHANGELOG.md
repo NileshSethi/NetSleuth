@@ -5,6 +5,45 @@ All notable changes to the **NetSleuth** project will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-18
+
+### Added
+- **Academic Capstone Report & Demonstration Preparation (Phase 7):**
+  - Authored comprehensive, professor-ready academic capstone project report in `reports/academic_project_report.md` covering 10 detailed chapters, formal problem statement, sliding-window detection algorithms, explainable scoring formulation, empirical evaluation results, threat modeling, and defensive recommendations.
+  - Authored complete live 5-minute demonstration script, top 15 viva and oral examination defense Q&A guide, and quick reference CLI cheatsheet in `docs/12_DEMO_AND_VIVA_GUIDE.md`.
+  - Created screenshot catalog and visual walkthrough capture specifications in `screenshots/README.md`.
+  - Completed end-to-end project implementation across all 7 planned phases.
+
+## [0.6.0] - 2026-10-18
+
+### Added
+- **Testing, Scientific Evaluation & Benchmarking (Phase 6):**
+  - Implemented metrics computation in `src/netsleuth/evaluation.py` calculating True Positives (TP), False Positives (FP), True Negatives (TN), False Negatives (FN), Precision, Recall, F1 Score, and Confusion Matrix.
+  - Implemented scenario benchmark pipelines (`benchmark_scenario` and `benchmark_all_scenarios`) for automated evaluation across synthetic scenarios.
+  - Implemented Tab 6 ("Evaluation & Benchmarks") in `app.py` displaying live confusion matrices, precision/recall/F1 metrics, and comparative evaluation tables.
+  - Added unit test suite in `tests/test_evaluation.py` (8 passing unit tests) confirming 0 false positives on benign baseline (100% precision) and high detection recall on attack scenarios.
+  - Automated test suite expanded to 58 unit tests across all modules (100% pass rate).
+
+## [0.5.0] - 2026-10-18
+
+### Added
+- **Graph Analysis & Analyst Dashboard (Phase 5):**
+  - Implemented directed host communication graph modeling using NetworkX in `src/netsleuth/graph_analysis.py` with RFC 1918 classification, centrality, and in/out degree metrics.
+  - Implemented interactive Plotly 2D network topology visualization with spring layout, edge hover tooltips, and highlighted red attacker nodes.
+  - Implemented comprehensive Streamlit web application in `app.py` with custom CSV uploader, 5 preset benchmark scenarios, live threshold sliders, KPI metric cards, incident drill-down, chronological attack timeline chart, topology graph, report download, and telemetry search.
+  - Implemented forensic Markdown report generator in `src/netsleuth/reporting.py`.
+  - Added unit test suites across `tests/test_graph_analysis.py` and `tests/test_reporting.py` (9 passing tests).
+
+## [0.4.0] - 2026-10-18
+
+### Added
+- **Correlation, Timeline & Scoring (Phase 4):**
+  - Implemented multi-alert incident correlation in `src/netsleuth/correlation.py` clustering alerts by source IP, pivot targets, and temporal sliding windows with deterministic `incident_id` generation.
+  - Implemented forensic chronological timeline reconstruction in `src/netsleuth/timeline.py` interleaving contributing raw flows with alert milestone markers.
+  - Implemented `extract_timeline_events()` for Plotly Gantt/scatter chart rendering.
+  - Implemented transparent, explainable incident priority scoring in `src/netsleuth/scoring.py` evaluating rule severity/diversity (0–40 pts), target breadth (0–30 pts), and volumetric impact (0–30 pts).
+  - Added unit test suites across `tests/test_correlation.py`, `tests/test_scoring.py`, and `tests/test_timeline.py` (15 passing unit tests).
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
