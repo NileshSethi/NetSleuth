@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    body {
+        background-color: #0d1117;
+        color: #c9d1d9;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        padding: 40px;
+        line-height: 1.6;
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+    h1, h2, h3, h4 {
+        color: #f0f6fc;
+        border-bottom: 1px solid #21262d;
+        padding-bottom: 0.3em;
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 20px 0;
+        background-color: #161b22;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    th, td {
+        border: 1px solid #30363d;
+        padding: 8px 12px;
+        text-align: left;
+    }
+    th {
+        background-color: #21262d;
+        color: #f0f6fc;
+        font-weight: 600;
+    }
+    tr:nth-child(even) {
+        background-color: #0d1117;
+    }
+    code {
+        background-color: rgba(110,118,129,0.4);
+        padding: 0.2em 0.4em;
+        border-radius: 6px;
+        font-family: monospace;
+    }
+    pre code {
+        display: block;
+        padding: 16px;
+        background-color: #161b22;
+        overflow-x: auto;
+    }
+    img {
+        max-width: 100%;
+        border-radius: 6px;
+    }
+    blockquote {
+        border-left: 4px solid #38bdf8;
+        padding-left: 16px;
+        color: #8b949e;
+        margin: 16px 0;
+    }
+    hr {
+        border: none;
+        border-top: 1px solid #30363d;
+        margin: 30px 0;
+    }
+</style>
+</head>
+<body>
+<h1>NetSleuth</h1>
+<blockquote>
+<p><strong>Enterprise Cloud Threat Detection, Attack Reconstruction &amp; Forensic Triage Platform for AWS VPC Flow Telemetry.</strong></p>
+</blockquote>
+<p><a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB?logo=python&amp;logoColor=white" alt="Python Version" /></a>
+<a href="https://streamlit.io/"><img src="https://img.shields.io/badge/Framework-Streamlit-FF4B4B?logo=streamlit&amp;logoColor=white" alt="Framework" /></a>
+<a href="https://pytest.org/"><img src="https://img.shields.io/badge/Test%20Suite-10%20Passed%20%7C%20100%25-059669?logo=pytest&amp;logoColor=white" alt="Testing" /></a>
+<a href="https://docs.aws.amazon.com/vpc/latest/userguide/flow-logs.html"><img src="https://img.shields.io/badge/Telemetry-AWS%20VPC%20Flow%20Logs%20v2-FF9900?logo=amazonaws&amp;logoColor=white" alt="Telemetry" /></a>
+<a href="https://attack.mitre.org/"><img src="https://img.shields.io/badge/Framework-MITRE%20ATT%26CK%20Enterprise-0284C7" alt="Framework" /></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-64748B" alt="License" /></a></p>
+<hr />
+<h2>Executive Overview</h2>
+<p><strong>NetSleuth</strong> is an enterprise-ready cloud threat detection and digital forensic incident triage platform designed for Security Operations Centers (SOCs), Blue Teams, and Cloud Security Engineers. NetSleuth ingests high-volume network flow telemetry (AWS VPC Flow Logs v2), correlates multi-stage attack milestones using deterministic sliding-window heuristics, and organizes isolated alerts into unified security incidents.</p>
+<p>The platform directly aligns all detected behaviors with the <strong>MITRE ATT&amp;CK Enterprise Matrix</strong>, calculates an explainable 0–100 risk score with a transparent audit trail, generates prescriptive containment playbooks (Standard Operating Procedures), and provides one-click exportable forensic dossiers through an interactive, dark-themed SOC dashboard.</p>
+<p><img src="screenshots/soc_clean_top.png" alt="NetSleuth SOC Dashboard Preview" /></p>
+<hr />
+<h2>Enterprise Value Proposition</h2>
+<ul>
+<li><strong>Eliminates Alert Fatigue:</strong> In high-throughput cloud environments, standalone network probes generate thousands of disconnected alerts. NetSleuth automatically aggregates related malicious events originating from the same threat actor within a 300-second session window into a single actionable incident.</li>
+<li><strong>Explainability Over Black-Box AI:</strong> Commercial machine learning solutions frequently output opaque, unverified probabilistic risk scores. NetSleuth uses a deterministic, additive mathematical model where every single point in an incident's score is backed by an explicit line-by-line forensic explanation.</li>
+<li><strong>Direct MITRE ATT&amp;CK Mapping:</strong> Classifies raw network flows into standardized adversary tactics and techniques (<code>T1046</code>, <code>T1018</code>, <code>T1048</code>), mapping attacker progress from initial perimeter discovery to outbound data theft.</li>
+<li><strong>Prescriptive Containment Automation:</strong> Automatically generates actionable Standard Operating Procedures (SOPs)—including AWS Network ACL rules and Security Group revocations—to drastically reduce Mean Time to Remediate (MTTR).</li>
+<li><strong>Zero Ingestion &amp; Licensing Overhead:</strong> Operates locally or within cloud virtual instances on standard CSV telemetry without requiring expensive multi-node SIEM infrastructure or proprietary database licenses.</li>
+</ul>
+<hr />
+<h2>System Architecture</h2>
+<p>NetSleuth employs a modular, high-throughput unidirectional analytical pipeline:</p>
+<pre><code class="language-text">[ AWS VPC Flow Telemetry ]
+           │
+           ▼
+[ loader.py: Schema Ingestion &amp; Sanitization ]
+           │
+           ▼
+[ detectors.py: Sliding-Window Threat Detection ]
+           │
+           ▼
+[ incidents.py: Incident Correlation &amp; Additive Scoring ]
+           │
+           ├───────────────────────────────┬───────────────────────────────┐
+           ▼                               ▼                               ▼
+[ MITRE ATT&amp;CK Mapping ]        [ Plotly Topology Graph ]       [ Forensic Markdown Dossier ]
+           │                               │                               │
+           └───────────────────────────────┼───────────────────────────────┘
+                                           ▼
+                            [ app.py: 5-Tab SOC Dashboard ]
+</code></pre>
+<p><img src="docs/netsleuth_architecture.png" alt="NetSleuth Multi-Stage Architecture" /></p>
+<h3>Core Components</h3>
+<ol>
+<li><strong>Telemetry Ingestion &amp; Sanitization (<code>loader.py</code>):</strong> Ingests VPC flow records, verifies required network headers, normalizes epoch timestamps to UTC, maps IANA protocol numbers (6 to TCP, 17 to UDP, 1 to ICMP), and quarantines corrupted records (malformed IPs, negative bytes, out-of-range ports).</li>
+<li><strong>Sliding-Window Threat Detection (<code>detectors.py</code>):</strong> Evaluates time-indexed flow sequences using rolling temporal windows to identify threshold-breaching reconnaissance and exfiltration patterns with zero external label dependency.</li>
+<li><strong>Temporal Incident Correlation (<code>incidents.py</code>):</strong> Groups alerts by source IP. Alerts separated by 300 seconds (5 minutes) or less are clustered into unified incident sessions; longer pauses split the actor's actions into separate incident investigations.</li>
+<li><strong>Explainable Risk Scoring Engine (<code>incidents.py</code>, <code>config.py</code>):</strong> Calculates an additive 0–100 priority score, maps triggers to MITRE ATT&amp;CK techniques, and builds prescriptive containment playbooks.</li>
+<li><strong>Interactive SOC Dashboard (<code>app.py</code>, <code>graph.py</code>):</strong> Renders the 5-tab analytical deck, interactive Plotly network topologies, chronological kill chain timelines, and provides one-click markdown forensic dossier export.</li>
+</ol>
+<hr />
+<h2>Cloud Telemetry Standard: AWS VPC Flow Logs</h2>
+<p>NetSleuth natively processes records matching the <strong>AWS VPC Flow Log Version 2</strong> standard:</p>
+<table>
+<thead>
+<tr>
+  <th style="text-align:left">Field Name</th>
+  <th style="text-align:left">AWS Flow Log Equivalent</th>
+  <th style="text-align:left">Data Type</th>
+  <th style="text-align:left">Forensic Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td style="text-align:left"><code>timestamp</code></td>
+  <td style="text-align:left"><code>start</code> / <code>end</code></td>
+  <td style="text-align:left"><code>datetime (UTC)</code></td>
+  <td style="text-align:left">Flow event timestamp normalized to UTC format.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>src_ip</code></td>
+  <td style="text-align:left"><code>srcaddr</code></td>
+  <td style="text-align:left"><code>string (IPv4)</code></td>
+  <td style="text-align:left">Source IP address originating the communication.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>dst_ip</code></td>
+  <td style="text-align:left"><code>dstaddr</code></td>
+  <td style="text-align:left"><code>string (IPv4)</code></td>
+  <td style="text-align:left">Destination IP address of the targeted host.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>src_port</code></td>
+  <td style="text-align:left"><code>srcport</code></td>
+  <td style="text-align:left"><code>integer (0–65535)</code></td>
+  <td style="text-align:left">Ephemeral source port number.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>dst_port</code></td>
+  <td style="text-align:left"><code>dstport</code></td>
+  <td style="text-align:left"><code>integer (0–65535)</code></td>
+  <td style="text-align:left">Destination service port (e.g., 22, 80, 443, 445).</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>protocol</code></td>
+  <td style="text-align:left"><code>protocol</code></td>
+  <td style="text-align:left"><code>string</code></td>
+  <td style="text-align:left">Transport protocol name mapped from IANA numbers (<code>TCP</code>, <code>UDP</code>, <code>ICMP</code>).</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>packets</code></td>
+  <td style="text-align:left"><code>packets</code></td>
+  <td style="text-align:left"><code>integer</code></td>
+  <td style="text-align:left">Count of packets transmitted within the flow window.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>bytes</code></td>
+  <td style="text-align:left"><code>bytes</code></td>
+  <td style="text-align:left"><code>integer</code></td>
+  <td style="text-align:left">Total volume of payload and header bytes transferred.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>action</code></td>
+  <td style="text-align:left"><code>action</code></td>
+  <td style="text-align:left"><code>string</code></td>
+  <td style="text-align:left">Firewall disposition: <code>ACCEPT</code> or <code>REJECT</code>.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>direction</code></td>
+  <td style="text-align:left"><em>Computed</em></td>
+  <td style="text-align:left"><code>string</code></td>
+  <td style="text-align:left">Relative path orientation: <code>INGRESS</code>, <code>EGRESS</code>, or <code>INTERNAL</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Detection Heuristics &amp; Scoring Engine</h2>
+<h3>1. Sliding-Window Detection Rules</h3>
+<table>
+<thead>
+<tr>
+  <th style="text-align:left">Attack Vector</th>
+  <th style="text-align:left">Rule Identifier</th>
+  <th style="text-align:center">Sliding Window</th>
+  <th style="text-align:left">Detection Condition</th>
+  <th style="text-align:center">Base Severity</th>
+  <th style="text-align:center">Base Points</th>
+  <th style="text-align:left">MITRE Reference</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td style="text-align:left"><strong>Vertical Port Scan</strong></td>
+  <td style="text-align:left"><code>port_scan</code></td>
+  <td style="text-align:center">60s</td>
+  <td style="text-align:left">&gt;= 10 unique destination ports on 1 target IP</td>
+  <td style="text-align:center"><code>MEDIUM</code></td>
+  <td style="text-align:center">+30 pts</td>
+  <td style="text-align:left"><strong>T1046</strong>: Network Service Discovery</td>
+</tr>
+<tr>
+  <td style="text-align:left"><strong>Horizontal Host Sweep</strong></td>
+  <td style="text-align:left"><code>host_scan</code></td>
+  <td style="text-align:center">60s</td>
+  <td style="text-align:left">&gt;= 5 unique internal host IPs on 1 service port</td>
+  <td style="text-align:center"><code>MEDIUM</code></td>
+  <td style="text-align:center">+30 pts</td>
+  <td style="text-align:left"><strong>T1018</strong>: Remote System Discovery</td>
+</tr>
+<tr>
+  <td style="text-align:left"><strong>Data Exfiltration</strong></td>
+  <td style="text-align:left"><code>exfiltration</code></td>
+  <td style="text-align:center">120s</td>
+  <td style="text-align:left">&gt;= 500 KB (500,000 bytes) transferred outbound</td>
+  <td style="text-align:center"><code>HIGH</code></td>
+  <td style="text-align:center">+50 pts</td>
+  <td style="text-align:left"><strong>T1048</strong>: Exfil Over Alt. Protocol</td>
+</tr>
+</tbody>
+</table>
+<h3>2. Additive Scoring Formula</h3>
+<p>The incident priority score is computed deterministically using the following additive model:</p>
+<pre><code class="language-text">Priority Score = min(100, Base Points + Extra Alert Points + Volume Bonus Points)
+</code></pre>
+<ul>
+<li><strong>Base Points:</strong> The highest severity among all alerts contributing to the incident (<code>HIGH</code> = 50, <code>MEDIUM</code> = 30, <code>LOW</code> = 10).</li>
+<li><strong>Extra Correlated Alert Points:</strong> +10 points for every additional alert correlated beyond the first: <code>((alert_count - 1) * 10)</code>.</li>
+<li><strong>Data Exfiltration Volume Bonus:</strong><ul>
+<li>If total exfiltrated bytes &gt;= 5 MB (5,000,000 bytes): <strong>+20 points</strong></li>
+<li>If total exfiltrated bytes &gt;= 500 KB (500,000 bytes): <strong>+10 points</strong></li>
+</ul>
+</li>
+<li><strong>Score Ceiling:</strong> Strictly clamped at a maximum ceiling of 100 points.</li>
+</ul>
+<h3>3. Severity Classification Matrix</h3>
+<table>
+<thead>
+<tr>
+  <th style="text-align:center">Score Range</th>
+  <th style="text-align:center">Priority Level</th>
+  <th style="text-align:left">Recommended SOC Response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td style="text-align:center"><strong>80 – 100</strong></td>
+  <td style="text-align:center"><strong>Critical</strong></td>
+  <td style="text-align:left">Confirmed multi-stage intrusion or massive data theft. Immediate host quarantine and credential rotation.</td>
+</tr>
+<tr>
+  <td style="text-align:center"><strong>60 – 79</strong></td>
+  <td style="text-align:center"><strong>High</strong></td>
+  <td style="text-align:left">Correlated malicious activities or confirmed data exfiltration. Rapid blue-team triage required.</td>
+</tr>
+<tr>
+  <td style="text-align:center"><strong>30 – 59</strong></td>
+  <td style="text-align:center"><strong>Medium</strong></td>
+  <td style="text-align:left">Isolated reconnaissance, vertical port probe, or subnet sweep. Add host to monitoring watchlist.</td>
+</tr>
+<tr>
+  <td style="text-align:center"><strong>0 – 29</strong></td>
+  <td style="text-align:center"><strong>Low</strong></td>
+  <td style="text-align:left">Minor threshold anomaly or low-confidence telemetry event. Logged for longitudinal auditing.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Forensic Worked Example: Multi-Stage Enterprise Attack (Scenario 4)</h2>
+<p>In Benchmark Scenario 4 (<code>scenario4_multi_stage.csv</code>), threat actor <strong><code>10.0.1.99</code></strong> executes a coordinated multi-stage intrusion within a 5-minute session window:</p>
+<ol>
+<li><strong>Vertical Port Scan (T1046):</strong> Probes 18 distinct ports on <code>10.0.1.20</code> within 17 seconds (Severity: <code>MEDIUM</code>).</li>
+<li><strong>Horizontal Host Sweep (T1018):</strong> Scans 12 internal hosts on SMB port 445 within 11 seconds (Severity: <code>MEDIUM</code>).</li>
+<li><strong>Outbound Data Exfiltration (T1048):</strong> Transfers 6,300,000 bytes (6.3 MB) to adversary drop <code>203.0.113.88</code> within 24 seconds (Severity: <code>HIGH</code>).</li>
+</ol>
+<h3>Priority Score Audit Trail</h3>
+<pre><code class="language-text">Base Severity (Highest Alert = HIGH)   : +50 pts
+Extra Alerts Bonus (2 extra alerts * 10): +20 pts
+Volume Bonus (6.3 MB Exfil &gt;= 5 MB)    : +20 pts
+-------------------------------------------------
+Total Calculated Priority Score         : 90 / 100 (Critical Priority)
+</code></pre>
+<hr />
+<h2>Quantitative Benchmark Performance</h2>
+<p>NetSleuth was benchmarked against eight diverse cloud traffic datasets covering distinct attack vectors, temporal splits, and normal baselines:</p>
+<table>
+<thead>
+<tr>
+  <th style="text-align:left">Scenario File</th>
+  <th style="text-align:left">Description</th>
+  <th style="text-align:center">Total Flows</th>
+  <th style="text-align:center">Malicious Flows</th>
+  <th style="text-align:center">Alerts Raised</th>
+  <th style="text-align:center">Incidents</th>
+  <th style="text-align:center">Max Score</th>
+  <th style="text-align:center">Priority</th>
+  <th style="text-align:center">Precision</th>
+  <th style="text-align:center">Recall</th>
+  <th style="text-align:center">F1-Score</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td style="text-align:left"><code>scenario1_port_scan.csv</code></td>
+  <td style="text-align:left">External Reconnaissance Probe</td>
+  <td style="text-align:center">238</td>
+  <td style="text-align:center">18</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">30</td>
+  <td style="text-align:center">Medium</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>scenario2_host_scan.csv</code></td>
+  <td style="text-align:left">Internal Subnet SMB Sweep</td>
+  <td style="text-align:center">232</td>
+  <td style="text-align:center">12</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">30</td>
+  <td style="text-align:center">Medium</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>scenario3_data_exfiltration.csv</code></td>
+  <td style="text-align:left">Outbound Asset Theft (2.4 MB)</td>
+  <td style="text-align:center">224</td>
+  <td style="text-align:center">20</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">60</td>
+  <td style="text-align:center">High</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>scenario4_multi_stage.csv</code></td>
+  <td style="text-align:left">Full Kill Chain Intrusion (6.3 MB)</td>
+  <td style="text-align:center">277</td>
+  <td style="text-align:center">50</td>
+  <td style="text-align:center">3</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">90</td>
+  <td style="text-align:center">Critical</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>scenario5_benign.csv</code></td>
+  <td style="text-align:left">Subnet Baseline (Zero Threats)</td>
+  <td style="text-align:center">320</td>
+  <td style="text-align:center">0</td>
+  <td style="text-align:center">0</td>
+  <td style="text-align:center">0</td>
+  <td style="text-align:center">0</td>
+  <td style="text-align:center">Normal</td>
+  <td style="text-align:center">1.000*</td>
+  <td style="text-align:center">1.000*</td>
+  <td style="text-align:center">1.000*</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>scenario6_persistent_threat.csv</code></td>
+  <td style="text-align:left">Temporal Split (12m Inactivity Gap)</td>
+  <td style="text-align:center">265</td>
+  <td style="text-align:center">38</td>
+  <td style="text-align:center">3</td>
+  <td style="text-align:center">2</td>
+  <td style="text-align:center">70</td>
+  <td style="text-align:center">High</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>scenario7_coordinated_attack.csv</code></td>
+  <td style="text-align:left">Dual Attackers (Perimeter &amp; Internal)</td>
+  <td style="text-align:center">277</td>
+  <td style="text-align:center">42</td>
+  <td style="text-align:center">3</td>
+  <td style="text-align:center">2</td>
+  <td style="text-align:center">70</td>
+  <td style="text-align:center">High</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+</tr>
+<tr>
+  <td style="text-align:left"><code>scenario8_cloud_data_breach.csv</code></td>
+  <td style="text-align:left">Massive DB Dump (12.0 MB Exfil)</td>
+  <td style="text-align:center">230</td>
+  <td style="text-align:center">10</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">1</td>
+  <td style="text-align:center">70</td>
+  <td style="text-align:center">High</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+  <td style="text-align:center">1.000</td>
+</tr>
+</tbody>
+</table>
+<p><em>*Note: In Scenario 5, precision and recall are recorded as 1.000 by convention because no attack flows are present. The primary metric is zero false alarms (False Positive Rate = 0.0%).</em></p>
+<hr />
+<h2>SOC Dashboard Capabilities</h2>
+<p>The NetSleuth interface organizes forensic intelligence across five specialized views:</p>
+<table>
+<thead>
+<tr>
+  <th style="text-align:left">Analytical Tab</th>
+  <th style="text-align:left">Capabilities &amp; Forensic Insights</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td style="text-align:left"><strong>1. Threat Incidents</strong></td>
+  <td style="text-align:left">Incident cards detailing threat actor IP, active investigation window, calculated priority scores, prominent 3-stage MITRE ATT&amp;CK kill-chain progression, transparent score breakdown, affected internal targets, and prescriptive containment playbooks.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><strong>2. Attack Timeline</strong></td>
+  <td style="text-align:left">Chronological Plotly scatter plot mapping detected events against kill-chain stages over time, paired with an audit trail table containing UTC timestamps and forensic findings.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><strong>3. Network Topology</strong></td>
+  <td style="text-align:left">Interactive directed NetworkX communication graph with SOC color coding (red threat actors, amber victims, cyan normal hosts), node degree metrics, and volume-ranked communicating host pairs.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><strong>4. Flow Telemetry</strong></td>
+  <td style="text-align:left">Donut charts for protocol distribution and firewall dispositions (ACCEPT vs REJECT), targeted destination ports bar chart, and an interactive flow explorer with IP search and direction/action filtering.</td>
+</tr>
+<tr>
+  <td style="text-align:left"><strong>5. Forensic Dossier &amp; Eval</strong></td>
+  <td style="text-align:left">Live preview and one-click markdown export of formal incident investigation reports, alongside the scientific ground-truth evaluation table across all benchmark scenarios.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Prescriptive Incident Response Playbooks</h2>
+<p>When an incident is correlated, NetSleuth generates immediate Standard Operating Procedures (SOPs) based on the specific attack rules triggered:</p>
+<pre><code class="language-text">01. Network Isolation: Apply an emergency AWS Network ACL rule to DROP all ingress and egress for [src_ip].
+02. Security Group Revocation: Audit and detach inbound security group permissions associated with [src_ip].
+03. Egress Control: Revoke outbound public route table egress and restrict outbound traffic to internal subnets.
+04. Lateral Spread Mitigation: Enforce host-based firewall rules blocking internal SMB (port 445) and SSH (port 22).
+05. Perimeter Hardening: Perform vulnerability scan on targeted hosts and terminate unauthenticated network listeners.
+</code></pre>
+<hr />
+<h2>Repository Structure</h2>
+<pre><code class="language-text">NetSleuth/
+├── README.md                                  # Enterprise documentation and system architecture guide
+├── requirements.txt                           # Core dependencies (pandas, streamlit, plotly, etc.)
+├── app.py                                     # Tactical SOC Streamlit dashboard (5 analytical tabs)
+├── src/
+│   └── netsleuth/
+│       ├── __init__.py                        # Package initialization
+│       ├── config.py                          # Thresholds, scoring weights, and MITRE metadata
+│       ├── loader.py                          # Ingestion, schema validation, and sanitization
+│       ├── detectors.py                       # 3 sliding-window heuristic threat detectors
+│       ├── incidents.py                       # Correlation, 0-100 scoring, and dossier generation
+│       ├── graph.py                           # NetworkX graph and Plotly topology visualization
+│       ├── evaluation.py                      # Quantitative benchmark metrics (Precision, Recall)
+│       └── synthetic.py                       # Deterministic synthetic scenario generation (Seed 42)
+├── data/
+│   └── synthetic/                             # 8 benchmark scenarios (224 to 320 records each)
+│       ├── scenario1_port_scan.csv            # External vertical reconnaissance probe
+│       ├── scenario2_host_scan.csv            # Internal lateral SMB sweep
+│       ├── scenario3_data_exfiltration.csv    # Outbound asset theft
+│       ├── scenario4_multi_stage.csv          # Multi-stage intrusion (Full kill chain)
+│       ├── scenario5_benign.csv               # Baseline normal traffic (Zero false alarms)
+│       ├── scenario6_persistent_threat.csv    # Temporal session boundary test (12m pause)
+│       ├── scenario7_coordinated_attack.csv   # Dual attacker coordinated intrusion
+│       └── scenario8_cloud_data_breach.csv    # Massive 12 MB database exfiltration
+├── tests/
+│   └── test_netsleuth.py                      # 10 automated unit tests (Pytest)
+├── docs/
+│   ├── NetSleuth_Academic_Project_Report.docx # Comprehensive 15-page technical report (.docx)
+│   ├── NetSleuth_Academic_Project_Report_preview.pdf # Native 15-page preview PDF
+│   ├── CLAUDE_REPORT_MASTER_PROMPT.md         # Reference prompt with all system specifications
+│   ├── netsleuth_architecture.png             # Multi-stage architecture diagram
+│   ├── DESIGN.md                              # System design and scoring model specification
+│   ├── DEMO_SCRIPT.md                         # Executive demonstration script &amp; technical Q&amp;A
+│   └── PRESENTATION_SLIDES.md                 # 12-slide comprehensive presentation deck
+└── screenshots/                               # High-resolution dashboard figures
+    ├── soc_clean_top.png                      # Header banner, KPI bar, and incident summary
+    ├── soc_clean_details.png                  # Score breakdown and containment playbook grid
+    ├── soc_tab2_timeline.png                  # Chronological attack timeline scatter plot
+    ├── soc_tab3_topology.png                  # Network host topology graph and traffic matrix
+    ├── fig5_1_incidents_score.png             # Report figure 11.1 (SOC dashboard view)
+    └── fig5_2_mitre_pipeline.png              # MITRE ATT&amp;CK progression stepper
+</code></pre>
+<hr />
+<h2>Installation &amp; Quickstart</h2>
+<h3>1. Prerequisites</h3>
+<ul>
+<li><strong>Python 3.10+</strong> (verified on Python 3.12)</li>
+<li>Git</li>
+</ul>
+<h3>2. Clone Repository &amp; Install Dependencies</h3>
+<pre><code class="language-bash">git clone https://github.com/NileshSethi/NetSleuth.git
+cd NetSleuth
+pip install -r requirements.txt
+</code></pre>
+<h3>3. Run the Automated Unit Test Suite</h3>
+<p>Verify that all 10 unit tests pass cleanly:</p>
+<pre><code class="language-bash">pytest tests/ -v
+</code></pre>
+<p>Expected output:</p>
+<pre><code class="language-text">tests/test_netsleuth.py::test_port_scan_threshold_boundary PASSED        [ 10%]
+tests/test_netsleuth.py::test_host_scan_threshold_boundary PASSED        [ 20%]
+tests/test_netsleuth.py::test_exfiltration_threshold_boundary PASSED     [ 30%]
+tests/test_netsleuth.py::test_benign_scenario_produces_zero_alerts PASSED [ 40%]
+tests/test_netsleuth.py::test_incident_correlation_time_gap PASSED       [ 50%]
+tests/test_netsleuth.py::test_scoring_hand_calculation PASSED            [ 60%]
+tests/test_netsleuth.py::test_scoring_never_exceeds_100 PASSED           [ 70%]
+tests/test_netsleuth.py::test_loader_drops_invalid_rows PASSED           [ 80%]
+tests/test_netsleuth.py::test_zero_label_leakage PASSED                  [ 90%]
+tests/test_netsleuth.py::test_mitre_mapping_and_forensic_dossier PASSED  [100%]
+============================== 10 passed in 2.95s ==============================
+</code></pre>
+<h3>4. Launch the Interactive SOC Dashboard</h3>
+<pre><code class="language-bash">streamlit run app.py
+</code></pre>
+<p>Open your browser at <code>http://localhost:8501</code>. Use the sidebar selector to examine any of the 8 benchmark scenarios or inspect active threat milestones.</p>
+<hr />
+<h2>Enterprise Roadmap &amp; Production Enhancements</h2>
+<ol>
+<li><strong>Streaming Telemetry Ingestion:</strong> Integrating real-time streaming connectors for Amazon Kinesis Data Firehose and AWS CloudWatch Logs for sub-second incident correlation.</li>
+<li><strong>Dynamic Baseline Calibration:</strong> Introducing sliding-window moving averages to auto-tune detection thresholds based on diurnal network activity cycles.</li>
+<li><strong>Multi-Cloud Format Normalization:</strong> Adding ingestion parsers for Microsoft Azure NSG flow logs, Google Cloud VPC flow logs, and Zeek/Bro connection logs.</li>
+<li><strong>Automated Remediation Integrations:</strong> Supporting optional, authenticated API hooks into AWS Systems Manager and AWS WAF to execute approved containment actions with a single click.</li>
+</ol>
+<hr />
+<h2>Authors &amp; Contributors</h2>
+<ul>
+<li><strong>Project Lead &amp; Core Developer:</strong> Nilesh Sethi</li>
+<li><strong>Engineering &amp; Testing Team:</strong> Om Gadwe, Nimhan Vedant, Omkar Roundal</li>
+</ul>
+<hr />
+<h2>License</h2>
+<p>This project is licensed under the <a href="LICENSE">MIT License</a> — free for academic, commercial, and research use.</p>
+
+</body>
+</html>

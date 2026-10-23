@@ -146,14 +146,14 @@ Total Calculated Priority Score         : 90 / 100 (Critical Priority)
 NetSleuth was benchmarked against eight diverse cloud traffic datasets covering distinct attack vectors, temporal splits, and normal baselines:
 
 | Scenario File | Description | Total Flows | Malicious Flows | Alerts Raised | Incidents | Max Score | Priority | Precision | Recall | F1-Score |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | `scenario1_port_scan.csv` | External Reconnaissance Probe | 238 | 18 | 1 | 1 | 30 | Medium | 1.000 | 1.000 | 1.000 |
 | `scenario2_host_scan.csv` | Internal Subnet SMB Sweep | 232 | 12 | 1 | 1 | 30 | Medium | 1.000 | 1.000 | 1.000 |
 | `scenario3_data_exfiltration.csv` | Outbound Asset Theft (2.4 MB) | 224 | 20 | 1 | 1 | 60 | High | 1.000 | 1.000 | 1.000 |
 | `scenario4_multi_stage.csv` | Full Kill Chain Intrusion (6.3 MB) | 277 | 50 | 3 | 1 | 90 | Critical | 1.000 | 1.000 | 1.000 |
 | `scenario5_benign.csv` | Subnet Baseline (Zero Threats) | 320 | 0 | 0 | 0 | 0 | Normal | 1.000* | 1.000* | 1.000* |
-| `scenario6_persistent_threat.csv` | Temporal Split (12m Inactivity Gap)| 265 | 38 | 3 | 2 | 70 | High | 1.000 | 1.000 | 1.000 |
-| `scenario7_coordinated_attack.csv` | Dual Attackers (Perimeter & Internal)| 277 | 42 | 3 | 2 | 70 | High | 1.000 | 1.000 | 1.000 |
+| `scenario6_persistent_threat.csv` | Temporal Split (12m Inactivity Gap) | 265 | 38 | 3 | 2 | 70 | High | 1.000 | 1.000 | 1.000 |
+| `scenario7_coordinated_attack.csv` | Dual Attackers (Perimeter & Internal) | 277 | 42 | 3 | 2 | 70 | High | 1.000 | 1.000 | 1.000 |
 | `scenario8_cloud_data_breach.csv` | Massive DB Dump (12.0 MB Exfil) | 230 | 10 | 1 | 1 | 70 | High | 1.000 | 1.000 | 1.000 |
 
 *\*Note: In Scenario 5, precision and recall are recorded as 1.000 by convention because no attack flows are present. The primary metric is zero false alarms (False Positive Rate = 0.0%).*
