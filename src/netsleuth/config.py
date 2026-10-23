@@ -1,81 +1,67 @@
-"""Central configuration module for NetSleuth.
+"""Configuration constants, detection thresholds, and MITRE ATT&CK metadata for NetSleuth."""
 
-This module provides structured, configurable detection thresholds, time windows,
-scoring weights, and system defaults. All detection heuristics reference these
-parameters rather than relying on unexplained hardcoded constants.
-"""
+# Detection rule thresholds
+PORT_SCAN_WINDOW = 60           # Sliding window in seconds for port scan detection
+PORT_SCAN_THRESHOLD = 10        # Minimum distinct ports on a single host to trigger alert
+PORT_SCAN_SEVERITY = "MEDIUM"
 
-from dataclasses import dataclass, field
-from typing import Dict, Any
+HOST_SCAN_WINDOW = 60           # Sliding window in seconds for host scan detection
+HOST_SCAN_THRESHOLD = 5         # Minimum distinct destination hosts to trigger alert
+HOST_SCAN_SEVERITY = "MEDIUM"
 
+EXFIL_WINDOW = 120              # Sliding window in seconds for exfiltration detection
+EXFIL_BYTES_THRESHOLD = 500_000 # Minimum outbound bytes to an external host to trigger alert
+EXFIL_SEVERITY = "HIGH"
 
-@dataclass(frozen=True)
-class DetectionConfig:
-    """Configurable thresholds and sliding time windows for threat detectors."""
+# Incident grouping & scoring thresholds
+INCIDENT_CORRELATION_WINDOW = 300  # 5 minutes: max gap between alerts from the same source IP
 
-    # Rule 1: Vertical Port Scan
-    port_scan_window_sec: int = 60
-    port_scan_threshold: int = 15
+SEVERITY_BASE_SCORES = {
+    "LOW": 10,
+    "MEDIUM": 30,
+    "HIGH": 50
+}
 
-    # Rule 2: Horizontal Host Scan
-    host_scan_window_sec: int = 120
-    host_scan_threshold: int = 10
+EXTRA_ALERT_POINTS = 10         # Points added for each additional alert beyond the first
+EXFIL_HIGH_BYTES = 5_000_000    # If exfiltrated bytes >= 5 MB, add 20 points
+EXFIL_HIGH_POINTS = 20
+EXFIL_MED_BYTES = 500_000       # If exfiltrated bytes >= 500 KB, add 10 points
+EXFIL_MED_POINTS = 10
+MAX_SCORE = 100
 
-    # Rule 3: Outbound Data Volume Spike
-    exfil_window_sec: int = 300
-    exfil_byte_threshold: int = 52_428_800  # 50 Megabytes
+# MITRE ATT&CK Enterprise Framework Mappings
+MITRE_MAPPINGS = {
+    "port_scan": {
+        "technique_id": "T1046",
+        "technique_name": "Network Service Discovery",
+        "tactic": "Discovery (TA0007)",
+        "kill_chain_phase": "Reconnaissance",
+        "description": "Adversary attempts to enumerate active listening services on a remote host to identify exploitable entry points."
+    },
+    "host_scan": {
+        "technique_id": "T1018",
+        "technique_name": "Remote System Discovery",
+        "tactic": "Discovery (TA0007)",
+        "kill_chain_phase": "Lateral Movement Prep",
+        "description": "Adversary sweeps the internal subnet across known service ports to locate live peer systems for lateral expansion."
+    },
+    "exfiltration": {
+        "technique_id": "T1048",
+        "technique_name": "Exfiltration Over Alternative Protocol",
+        "tactic": "Exfiltration (TA0010)",
+        "kill_chain_phase": "Actions on Objectives",
+        "description": "Adversary transmits sensitive collected assets over unmonitored or encrypted network paths to an untrusted external endpoint."
+    }
+}
 
-
-@dataclass(frozen=True)
-class CorrelationConfig:
-    """Parameters controlling how individual alerts are clustered into incidents."""
-
-    # Maximum time difference between alerts to be correlated into the same incident
-    correlation_window_sec: int = 600  # 10 minutes
-
-
-@dataclass(frozen=True)
-class ScoringConfig:
-    """Weights and multipliers for transparent, explainable incident priority scoring."""
-
-    # Severity weights per alert type
-    rule_weights: Dict[str, int] = field(
-        default_factory=lambda: {
-            "RULE-PORT-SCAN": 25,
-            "RULE-HOST-SCAN": 35,
-            "RULE-EXFIL-SPIKE": 40,
-        }
-    )
-    max_score: int = 100
-
-
-@dataclass
-class NetSleuthConfig:
-    """Master configuration container for NetSleuth runtime."""
-
-    detection: DetectionConfig = field(default_factory=DetectionConfig)
-    correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
-    scoring: ScoringConfig = field(default_factory=ScoringConfig)
-    default_data_dir: str = "data/synthetic"
-
-    # TODO (Phase 2): Add helper methods to export and import config to/from dict/JSON
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert configuration settings to a dictionary."""
-        return {
-            "detection": {
-                "port_scan_window_sec": self.detection.port_scan_window_sec,
-                "port_scan_threshold": self.detection.port_scan_threshold,
-                "host_scan_window_sec": self.detection.host_scan_window_sec,
-                "host_scan_threshold": self.detection.host_scan_threshold,
-                "exfil_window_sec": self.detection.exfil_window_sec,
-                "exfil_byte_threshold": self.detection.exfil_byte_threshold,
-            },
-            "correlation": {
-                "correlation_window_sec": self.correlation.correlation_window_sec,
-            },
-            "scoring": {
-                "rule_weights": self.scoring.rule_weights,
-                "max_score": self.scoring.max_score,
-            },
-            "default_data_dir": self.default_data_dir,
-        }
+# Required CSV columns
+REQUIRED_COLUMNS = [
+    "timestamp",
+    "src_ip",
+    "dst_ip",
+    "dst_port",
+    "protocol",
+    "bytes",
+    "action",
+    "direction"
+]

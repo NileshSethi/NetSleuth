@@ -1,418 +1,389 @@
-"""Synthetic Network-Flow Dataset Generator.
+"""Generates deterministic synthetic network flow datasets for benchmarking."""
 
-Generates reproducible, RFC-compliant synthetic network-flow records modeling
-cloud VPC flow logs for benign baselines and simulated cyber-attack scenarios:
-- Scenario 1: Benign Enterprise Baseline
-- Scenario 2: Vertical Port Scan Reconnaissance
-- Scenario 3: Horizontal Host Sweep Discovery
-- Scenario 4: Anomalous Outbound Data Exfiltration
-- Scenario 5: Multi-Stage Blended Attack Kill Chain
-
-All scenarios use fixed random seeds for strict determinism.
-"""
-
+import os
 import random
-import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Union
 import pandas as pd
 
-from netsleuth.schema import REQUIRED_COLUMNS, EVALUATION_COLUMNS
 
-
-def _make_event_id() -> str:
-    """Generate a unique flow event identifier."""
-    return f"flw-{uuid.uuid4().hex[:10]}"
-
-
-def _format_iso(dt: datetime) -> str:
-    """Format datetime object into canonical ISO-8601 UTC string."""
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def generate_benign_flows(
-    base_time: datetime,
-    duration_minutes: int = 30,
-    count: int = 500,
-    seed: int = 42,
-) -> List[Dict[str, Any]]:
-    """Generate realistic benign enterprise network traffic."""
-    rnd = random.Random(seed)
+def generate_benign_flows(start_time: datetime, count: int = 250, seed: int = 42) -> list[dict]:
+    """Create realistic normal enterprise background traffic (web, DNS, email, SSH)."""
+    random.seed(seed)
     flows = []
+    internal_hosts = ["10.0.1.10", "10.0.1.20", "10.0.1.30", "10.0.1.40"]
+    external_sites = ["93.184.216.34", "151.101.1.69", "172.217.16.206"]
 
-    internal_workstations = [f"10.0.1.{i}" for i in range(10, 30)]
-    internal_servers = ["10.0.0.5", "10.0.0.10", "10.0.0.20"]
-    external_web_ips = ["198.51.100.15", "198.51.100.42", "203.0.113.10", "203.0.113.55"]
-
-    common_services = [
-        (443, "TCP", "OUTBOUND"),
-        (80, "TCP", "OUTBOUND"),
-        (53, "UDP", "OUTBOUND"),
-        (445, "TCP", "INTERNAL"),
-        (22, "TCP", "INTERNAL"),
-    ]
-
+    current_time = start_time
     for _ in range(count):
-        offset_seconds = rnd.randint(0, duration_minutes * 60)
-        ts = base_time + timedelta(seconds=offset_seconds)
-        src = rnd.choice(internal_workstations)
-        src_port = rnd.randint(49152, 65535)
+        current_time += timedelta(seconds=random.randint(2, 6))
+        flow_type = random.choice(["web", "dns", "ssh", "email"])
 
-        service_port, protocol, direction = rnd.choice(common_services)
-        if direction == "INTERNAL":
-            dst = rnd.choice(internal_servers)
-        else:
-            dst = rnd.choice(external_web_ips)
+        if flow_type == "web":
+            src = random.choice(internal_hosts)
+            dst = random.choice(external_sites)
+            port = random.choice([80, 443])
+            proto = "TCP"
+            byte_count = random.randint(800, 15000)
+            action = "ACCEPT"
+            direction = "OUTBOUND"
+        elif flow_type == "dns":
+            src = random.choice(internal_hosts)
+            dst = "10.0.0.2"
+            port = 53
+            proto = "UDP"
+            byte_count = random.randint(64, 256)
+            action = "ACCEPT"
+            direction = "INTERNAL"
+        elif flow_type == "ssh":
+            src = "10.0.1.10"
+            dst = "10.0.1.20"
+            port = 22
+            proto = "TCP"
+            byte_count = random.randint(500, 3000)
+            action = "ACCEPT"
+            direction = "INTERNAL"
+        else:  # email
+            src = random.choice(internal_hosts)
+            dst = "198.51.100.25"
+            port = 587
+            proto = "TCP"
+            byte_count = random.randint(1200, 6000)
+            action = "ACCEPT"
+            direction = "OUTBOUND"
 
-        # Benign bytes: HTTP/S between 1 KB and 300 KB; DNS small 60-500 bytes
-        if service_port in (80, 443):
-            byte_count = rnd.randint(1_024, 300_000)
-        elif service_port == 53:
-            byte_count = rnd.randint(64, 512)
-        else:
-            byte_count = rnd.randint(500, 50_000)
-
-        action = "ACCEPT" if rnd.random() > 0.05 else "REJECT"
-
-        flows.append(
-            {
-                "event_id": _make_event_id(),
-                "timestamp": _format_iso(ts),
-                "src_ip": src,
-                "dst_ip": dst,
-                "src_port": src_port,
-                "dst_port": service_port,
-                "protocol": protocol,
-                "bytes": byte_count,
-                "action": action,
-                "direction": direction,
-                "cloud_region": "us-east-1",
-                "vpc_id": "vpc-0a1b2c3d",
-                "scenario_id": "SCN-01-BENIGN",
-                "is_attack": False,
-                "attack_type": "benign",
-            }
-        )
-
+        flows.append({
+            "timestamp": current_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": src,
+            "dst_ip": dst,
+            "dst_port": port,
+            "protocol": proto,
+            "bytes": byte_count,
+            "action": action,
+            "direction": direction,
+            "label": "normal"
+        })
     return flows
 
 
-def generate_scenario_01_benign(output_path: Optional[Path] = None) -> pd.DataFrame:
-    """Scenario 1: Pure benign baseline enterprise network traffic."""
-    base_time = datetime(2026, 10, 18, 9, 0, 0, tzinfo=timezone.utc)
-    flows = generate_benign_flows(base_time, duration_minutes=30, count=1000, seed=101)
+def generate_scenario_1_port_scan(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 1: External attacker scanning multiple ports on an internal host."""
+    base_time = datetime(2026, 10, 20, 10, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=220, seed=seed)
 
-    df = pd.DataFrame(flows)
-    df.sort_values(by="timestamp", inplace=True)
-    df.reset_index(drop=True, inplace=True)
+    # Attack burst: external attacker probes 18 distinct ports in 30 seconds
+    attack_time = base_time + timedelta(seconds=120)
+    ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 993, 1433, 3306, 3389, 5432, 8080, 8443, 9000]
+    for port in ports:
+        attack_time += timedelta(seconds=1)
+        flows.append({
+            "timestamp": attack_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": "198.51.100.55",
+            "dst_ip": "10.0.1.20",
+            "dst_port": port,
+            "protocol": "TCP",
+            "bytes": 64,
+            "action": "REJECT" if port not in [80, 443] else "ACCEPT",
+            "direction": "INBOUND",
+            "label": "port_scan"
+        })
 
-    if output_path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, index=False)
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
     return df
 
 
-def generate_scenario_02_port_scan(output_path: Optional[Path] = None) -> pd.DataFrame:
-    """Scenario 2: Vertical Port Scan against a single target internal host."""
-    rnd = random.Random(202)
-    base_time = datetime(2026, 10, 18, 10, 0, 0, tzinfo=timezone.utc)
+def generate_scenario_2_host_scan(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 2: Compromised host scanning internal subnet for SMB/port 445."""
+    base_time = datetime(2026, 10, 20, 11, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=220, seed=seed)
 
-    # 1. Background benign traffic
-    flows = generate_benign_flows(base_time, duration_minutes=15, count=400, seed=203)
-    for f in flows:
-        f["scenario_id"] = "SCN-02-PORTSCAN"
-
-    # 2. Attacker vertical port scan: 10.0.1.45 probes 10.0.0.15 on 40 distinct ports
-    attacker_ip = "10.0.1.45"
-    target_server = "10.0.0.15"
-    scan_start = base_time + timedelta(minutes=5)
-
-    ports_to_scan = [
-        21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995,
-        1433, 1521, 2049, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443,
-        8888, 9000, 9200, 27017, 7001, 5000, 8081, 10000, 49152, 49153,
-        49154, 49155, 49156, 49157
-    ]
-
-    for idx, port in enumerate(ports_to_scan):
-        ts = scan_start + timedelta(seconds=idx * 1)  # 1 port per second (40s scan)
-        src_port = rnd.randint(50000, 65000)
-        # Target only has ports 80, 443 open; others rejected
-        action = "ACCEPT" if port in (80, 443) else "REJECT"
-
-        flows.append(
-            {
-                "event_id": _make_event_id(),
-                "timestamp": _format_iso(ts),
-                "src_ip": attacker_ip,
-                "dst_ip": target_server,
-                "src_port": src_port,
-                "dst_port": port,
-                "protocol": "TCP",
-                "bytes": rnd.randint(40, 120),  # Small probe packets
-                "action": action,
-                "direction": "INTERNAL",
-                "cloud_region": "us-east-1",
-                "vpc_id": "vpc-0a1b2c3d",
-                "scenario_id": "SCN-02-PORTSCAN",
-                "is_attack": True,
-                "attack_type": "port_scan",
-            }
-        )
-
-    df = pd.DataFrame(flows)
-    df.sort_values(by="timestamp", inplace=True)
-    df.reset_index(drop=True, inplace=True)
-
-    if output_path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, index=False)
-    return df
-
-
-def generate_scenario_03_host_scan(output_path: Optional[Path] = None) -> pd.DataFrame:
-    """Scenario 3: Horizontal Host Scan (Discovery sweep across 25 subnet hosts)."""
-    rnd = random.Random(303)
-    base_time = datetime(2026, 10, 18, 11, 0, 0, tzinfo=timezone.utc)
-
-    # 1. Background benign traffic
-    flows = generate_benign_flows(base_time, duration_minutes=15, count=400, seed=304)
-    for f in flows:
-        f["scenario_id"] = "SCN-03-HOSTSCAN"
-
-    # 2. Attacker horizontal sweep: 10.0.1.77 probes port 445 across 10.0.2.1-10.0.2.25
-    attacker_ip = "10.0.1.77"
-    sweep_start = base_time + timedelta(minutes=4)
-    target_hosts = [f"10.0.2.{i}" for i in range(1, 26)]  # 25 hosts
-
-    for idx, target_ip in enumerate(target_hosts):
-        ts = sweep_start + timedelta(seconds=idx * 2)  # probe every 2 seconds
-        src_port = rnd.randint(49152, 65535)
-        # Most internal hosts don't have SMB open
-        action = "ACCEPT" if idx in (3, 12, 19) else "REJECT"
-
-        flows.append(
-            {
-                "event_id": _make_event_id(),
-                "timestamp": _format_iso(ts),
-                "src_ip": attacker_ip,
-                "dst_ip": target_ip,
-                "src_port": src_port,
-                "dst_port": 445,
-                "protocol": "TCP",
-                "bytes": rnd.randint(60, 140),
-                "action": action,
-                "direction": "INTERNAL",
-                "cloud_region": "us-east-1",
-                "vpc_id": "vpc-0a1b2c3d",
-                "scenario_id": "SCN-03-HOSTSCAN",
-                "is_attack": True,
-                "attack_type": "host_scan",
-            }
-        )
-
-    df = pd.DataFrame(flows)
-    df.sort_values(by="timestamp", inplace=True)
-    df.reset_index(drop=True, inplace=True)
-
-    if output_path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, index=False)
-    return df
-
-
-def generate_scenario_04_exfiltration(output_path: Optional[Path] = None) -> pd.DataFrame:
-    """Scenario 4: High-volume outbound data exfiltration spike."""
-    rnd = random.Random(404)
-    base_time = datetime(2026, 10, 18, 14, 0, 0, tzinfo=timezone.utc)
-
-    # 1. Background benign traffic
-    flows = generate_benign_flows(base_time, duration_minutes=20, count=400, seed=405)
-    for f in flows:
-        f["scenario_id"] = "SCN-04-EXFIL"
-
-    # 2. Outbound Exfiltration: Internal DB server transfers 80 MB to external IP
-    db_server = "10.0.0.25"
-    drop_point_ip = "203.0.113.88"  # RFC 5737 doc IP
-    exfil_start = base_time + timedelta(minutes=8)
-
-    # 8 flows of ~10 MB each over 2 minutes (Total ~80 MB)
-    for i in range(8):
-        ts = exfil_start + timedelta(seconds=i * 15)
-        flows.append(
-            {
-                "event_id": _make_event_id(),
-                "timestamp": _format_iso(ts),
-                "src_ip": db_server,
-                "dst_ip": drop_point_ip,
-                "src_port": rnd.randint(49152, 65535),
-                "dst_port": 443,
-                "protocol": "TCP",
-                "bytes": 10_485_760,  # Exactly 10 MB per flow
-                "action": "ACCEPT",
-                "direction": "OUTBOUND",
-                "cloud_region": "us-east-1",
-                "vpc_id": "vpc-0a1b2c3d",
-                "scenario_id": "SCN-04-EXFIL",
-                "is_attack": True,
-                "attack_type": "exfiltration",
-            }
-        )
-
-    df = pd.DataFrame(flows)
-    df.sort_values(by="timestamp", inplace=True)
-    df.reset_index(drop=True, inplace=True)
-
-    if output_path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, index=False)
-    return df
-
-
-def generate_scenario_05_blended_attack(output_path: Optional[Path] = None) -> pd.DataFrame:
-    """Scenario 5: Multi-stage APT blended attack (Discovery -> Recon -> Pivot -> Exfil)."""
-    rnd = random.Random(505)
-    base_time = datetime(2026, 10, 18, 15, 0, 0, tzinfo=timezone.utc)
-
-    # 1. Baseline enterprise traffic across 40 minutes
-    flows = generate_benign_flows(base_time, duration_minutes=40, count=700, seed=506)
-    for f in flows:
-        f["scenario_id"] = "SCN-05-BLENDED"
-
-    attacker_workstation = "10.0.1.100"
-    file_server = "10.0.0.15"
-    exfil_dest = "203.0.113.99"
-
-    # Stage 1: Horizontal Host Sweep (Discovery) at T+5m
-    stage1_time = base_time + timedelta(minutes=5)
-    for i in range(15):
-        ts = stage1_time + timedelta(seconds=i * 3)
-        flows.append(
-            {
-                "event_id": _make_event_id(),
-                "timestamp": _format_iso(ts),
-                "src_ip": attacker_workstation,
-                "dst_ip": f"10.0.0.{i+10}",
-                "src_port": rnd.randint(50000, 60000),
-                "dst_port": 445,
-                "protocol": "TCP",
-                "bytes": 96,
-                "action": "ACCEPT" if i == 5 else "REJECT",  # Target 10.0.0.15 responds
-                "direction": "INTERNAL",
-                "cloud_region": "us-east-1",
-                "vpc_id": "vpc-0a1b2c3d",
-                "scenario_id": "SCN-05-BLENDED",
-                "is_attack": True,
-                "attack_type": "host_scan",
-            }
-        )
-
-    # Stage 2: Vertical Port Scan on discovered file server (10.0.0.15) at T+12m
-    stage2_time = base_time + timedelta(minutes=12)
-    ports = [21, 22, 80, 135, 139, 443, 445, 1433, 3306, 3389, 8080, 8443, 9000, 5000, 8888, 2049, 5900, 6379, 9200, 27017]
-    for idx, p in enumerate(ports):
-        ts = stage2_time + timedelta(seconds=idx * 2)
-        flows.append(
-            {
-                "event_id": _make_event_id(),
-                "timestamp": _format_iso(ts),
-                "src_ip": attacker_workstation,
-                "dst_ip": file_server,
-                "src_port": rnd.randint(50000, 60000),
-                "dst_port": p,
-                "protocol": "TCP",
-                "bytes": 74,
-                "action": "ACCEPT" if p in (80, 445) else "REJECT",
-                "direction": "INTERNAL",
-                "cloud_region": "us-east-1",
-                "vpc_id": "vpc-0a1b2c3d",
-                "scenario_id": "SCN-05-BLENDED",
-                "is_attack": True,
-                "attack_type": "port_scan",
-            }
-        )
-
-    # Stage 3: Lateral Movement & Access at T+18m
-    stage3_time = base_time + timedelta(minutes=18)
-    flows.append(
-        {
-            "event_id": _make_event_id(),
-            "timestamp": _format_iso(stage3_time),
-            "src_ip": attacker_workstation,
-            "dst_ip": file_server,
-            "src_port": 54321,
+    # Attack burst: probes 12 distinct internal hosts on port 445 in 30 seconds
+    attack_time = base_time + timedelta(seconds=120)
+    target_hosts = [f"10.0.1.{i}" for i in range(21, 33)]
+    for target in target_hosts:
+        attack_time += timedelta(seconds=2)
+        flows.append({
+            "timestamp": attack_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": "10.0.1.15",
+            "dst_ip": target,
             "dst_port": 445,
             "protocol": "TCP",
-            "bytes": 2_500_000,  # 2.5 MB lateral file transfer
-            "action": "ACCEPT",
+            "bytes": 60,
+            "action": "REJECT",
             "direction": "INTERNAL",
-            "cloud_region": "us-east-1",
-            "vpc_id": "vpc-0a1b2c3d",
-            "scenario_id": "SCN-05-BLENDED",
-            "is_attack": True,
-            "attack_type": "lateral_movement",
-        }
-    )
+            "label": "host_scan"
+        })
 
-    # Stage 4: Outbound Exfiltration from file server at T+25m
-    stage4_time = base_time + timedelta(minutes=25)
-    for i in range(10):
-        ts = stage4_time + timedelta(seconds=i * 12)
-        flows.append(
-            {
-                "event_id": _make_event_id(),
-                "timestamp": _format_iso(ts),
-                "src_ip": file_server,
-                "dst_ip": exfil_dest,
-                "src_port": rnd.randint(49152, 65535),
-                "dst_port": 443,
-                "protocol": "TCP",
-                "bytes": 10_000_000,  # 10 MB per burst (100 MB total)
-                "action": "ACCEPT",
-                "direction": "OUTBOUND",
-                "cloud_region": "us-east-1",
-                "vpc_id": "vpc-0a1b2c3d",
-                "scenario_id": "SCN-05-BLENDED",
-                "is_attack": True,
-                "attack_type": "exfiltration",
-            }
-        )
-
-    df = pd.DataFrame(flows)
-    df.sort_values(by="timestamp", inplace=True)
-    df.reset_index(drop=True, inplace=True)
-
-    if output_path:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_path, index=False)
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
     return df
 
 
-def generate_all_synthetic_datasets(target_dir: Union[str, Path] = "data/synthetic") -> Dict[str, Path]:
-    """Generate and write all 5 canonical benchmark datasets to disk."""
-    dir_path = Path(target_dir)
-    dir_path.mkdir(parents=True, exist_ok=True)
+def generate_scenario_3_exfiltration(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 3: Internal host exfiltrating large data volume outbound."""
+    base_time = datetime(2026, 10, 20, 12, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=220, seed=seed)
 
-    generators = {
-        "scenario_01_benign.csv": generate_scenario_01_benign,
-        "scenario_02_port_scan.csv": generate_scenario_02_port_scan,
-        "scenario_03_host_scan.csv": generate_scenario_03_host_scan,
-        "scenario_04_exfiltration.csv": generate_scenario_04_exfiltration,
-        "scenario_05_blended_attack.csv": generate_scenario_05_blended_attack,
+    # Attack burst: 4 large flows totaling 2,400,000 bytes in 40 seconds
+    attack_time = base_time + timedelta(seconds=150)
+    for _ in range(4):
+        attack_time += timedelta(seconds=8)
+        flows.append({
+            "timestamp": attack_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": "10.0.1.45",
+            "dst_ip": "203.0.113.88",
+            "dst_port": 443,
+            "protocol": "TCP",
+            "bytes": 600000,
+            "action": "ACCEPT",
+            "direction": "OUTBOUND",
+            "label": "exfiltration"
+        })
+
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
+    return df
+
+
+def generate_scenario_4_multi_stage(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 4: Multi-stage attack (port scan -> host scan -> exfiltration)."""
+    base_time = datetime(2026, 10, 20, 14, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=250, seed=seed)
+
+    attacker = "10.0.1.99"
+
+    # Stage 1: Port scan on 10.0.1.20 (at T + 60s)
+    t1 = base_time + timedelta(seconds=60)
+    ports = [21, 22, 25, 53, 80, 110, 143, 443, 445, 1433, 3306, 3389, 8080]
+    for port in ports:
+        t1 += timedelta(seconds=1)
+        flows.append({
+            "timestamp": t1.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": attacker,
+            "dst_ip": "10.0.1.20",
+            "dst_port": port,
+            "protocol": "TCP",
+            "bytes": 64,
+            "action": "REJECT",
+            "direction": "INTERNAL",
+            "label": "port_scan"
+        })
+
+    # Stage 2: Host scan on port 80 (at T + 180s, within 5 min window)
+    t2 = base_time + timedelta(seconds=180)
+    for host in [f"10.0.1.{i}" for i in range(30, 38)]:
+        t2 += timedelta(seconds=2)
+        flows.append({
+            "timestamp": t2.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": attacker,
+            "dst_ip": host,
+            "dst_port": 80,
+            "protocol": "TCP",
+            "bytes": 64,
+            "action": "ACCEPT",
+            "direction": "INTERNAL",
+            "label": "host_scan"
+        })
+
+    # Stage 3: Large outbound exfiltration (at T + 300s, within 5 min window)
+    t3 = base_time + timedelta(seconds=300)
+    for _ in range(6):
+        t3 += timedelta(seconds=6)
+        flows.append({
+            "timestamp": t3.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": attacker,
+            "dst_ip": "203.0.113.88",
+            "dst_port": 443,
+            "protocol": "TCP",
+            "bytes": 1050000,
+            "action": "ACCEPT",
+            "direction": "OUTBOUND",
+            "label": "exfiltration"
+        })
+
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
+    return df
+
+
+def generate_scenario_5_benign(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 5: Pure normal background traffic with 0 attacks."""
+    base_time = datetime(2026, 10, 20, 16, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=320, seed=seed)
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
+    return df
+
+
+def generate_scenario_6_persistent_threat(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 6: Persistent threat actor re-attacking after quiet period (temporal splitting into 2 incidents)."""
+    base_time = datetime(2026, 10, 20, 18, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=240, seed=seed)
+    attacker = "10.0.1.105"
+
+    # Wave 1: Port scan on 10.0.1.30 (14 ports)
+    t1 = base_time + timedelta(seconds=60)
+    ports = [21, 22, 23, 25, 80, 110, 143, 443, 445, 1433, 3306, 3389, 8080, 8443]
+    for p in ports:
+        t1 += timedelta(seconds=1)
+        flows.append({
+            "timestamp": t1.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": attacker,
+            "dst_ip": "10.0.1.30",
+            "dst_port": p,
+            "protocol": "TCP",
+            "bytes": 64,
+            "action": "REJECT",
+            "direction": "INTERNAL",
+            "label": "port_scan"
+        })
+
+    # Quiet gap of 12 minutes (720s > 300s correlation window)
+    # Wave 2: Host sweep across 8 hosts on port 445
+    t2 = base_time + timedelta(seconds=820)
+    for host in [f"10.0.1.{i}" for i in range(40, 48)]:
+        t2 += timedelta(seconds=2)
+        flows.append({
+            "timestamp": t2.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": attacker,
+            "dst_ip": host,
+            "dst_port": 445,
+            "protocol": "TCP",
+            "bytes": 64,
+            "action": "REJECT",
+            "direction": "INTERNAL",
+            "label": "host_scan"
+        })
+
+    # Wave 2 follow-up: Moderate exfiltration (3 flows x 600KB = 1.8MB)
+    t3 = t2 + timedelta(seconds=40)
+    for _ in range(3):
+        t3 += timedelta(seconds=6)
+        flows.append({
+            "timestamp": t3.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": attacker,
+            "dst_ip": "203.0.113.77",
+            "dst_port": 443,
+            "protocol": "TCP",
+            "bytes": 600000,
+            "action": "ACCEPT",
+            "direction": "OUTBOUND",
+            "label": "exfiltration"
+        })
+
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
+    return df
+
+
+def generate_scenario_7_coordinated_attack(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 7: Coordinated multi-threat actor intrusion (dual concurrent attackers)."""
+    base_time = datetime(2026, 10, 20, 20, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=250, seed=seed)
+
+    # Attacker 1 (External perimeter scanner 198.51.100.77: 15 ports on 10.0.1.20)
+    t1 = base_time + timedelta(seconds=45)
+    ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 1433, 3306, 3389, 5432, 8080]
+    for p in ports:
+        t1 += timedelta(seconds=1)
+        flows.append({
+            "timestamp": t1.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": "198.51.100.77",
+            "dst_ip": "10.0.1.20",
+            "dst_port": p,
+            "protocol": "TCP",
+            "bytes": 64,
+            "action": "REJECT",
+            "direction": "INBOUND",
+            "label": "port_scan"
+        })
+
+    # Attacker 2 (Compromised internal host 10.0.1.55: SSH sweep across 7 hosts + 3.5MB exfiltration)
+    t2 = base_time + timedelta(seconds=70)
+    for host in [f"10.0.1.{i}" for i in range(11, 18)]:
+        t2 += timedelta(seconds=2)
+        flows.append({
+            "timestamp": t2.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": "10.0.1.55",
+            "dst_ip": host,
+            "dst_port": 22,
+            "protocol": "TCP",
+            "bytes": 64,
+            "action": "REJECT",
+            "direction": "INTERNAL",
+            "label": "host_scan"
+        })
+
+    t3 = base_time + timedelta(seconds=120)
+    for _ in range(5):
+        t3 += timedelta(seconds=7)
+        flows.append({
+            "timestamp": t3.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": "10.0.1.55",
+            "dst_ip": "198.51.100.90",
+            "dst_port": 443,
+            "protocol": "TCP",
+            "bytes": 700000,
+            "action": "ACCEPT",
+            "direction": "OUTBOUND",
+            "label": "exfiltration"
+        })
+
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
+    return df
+
+
+def generate_scenario_8_cloud_data_breach(seed: int = 42) -> pd.DataFrame:
+    """Generate scenario 8: High-volume enterprise database breach (12 MB exfiltration)."""
+    base_time = datetime(2026, 10, 20, 22, 0, 0, tzinfo=timezone.utc)
+    flows = generate_benign_flows(base_time, count=220, seed=seed)
+
+    # Rogue database host 10.0.1.60 dumps 12 MB in 10 flows
+    t1 = base_time + timedelta(seconds=90)
+    for _ in range(10):
+        t1 += timedelta(seconds=5)
+        flows.append({
+            "timestamp": t1.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "src_ip": "10.0.1.60",
+            "dst_ip": "198.51.100.199",
+            "dst_port": 443,
+            "protocol": "TCP",
+            "bytes": 1200000,
+            "action": "ACCEPT",
+            "direction": "OUTBOUND",
+            "label": "exfiltration"
+        })
+
+    df = pd.DataFrame(flows).sort_values(by="timestamp").reset_index(drop=True)
+    return df
+
+
+def generate_all_datasets(output_dir: str = "data/synthetic") -> dict[str, pd.DataFrame]:
+    """Generate all 8 canonical and extended scenarios and save them as CSV files."""
+    os.makedirs(output_dir, exist_ok=True)
+    datasets = {
+        "Scenario 1 - Port Scan": generate_scenario_1_port_scan(),
+        "Scenario 2 - Host Scan": generate_scenario_2_host_scan(),
+        "Scenario 3 - Data Exfiltration": generate_scenario_3_exfiltration(),
+        "Scenario 4 - Multi-Stage Attack": generate_scenario_4_multi_stage(),
+        "Scenario 5 - Benign Baseline": generate_scenario_5_benign(),
+        "Scenario 6 - Persistent Threat": generate_scenario_6_persistent_threat(),
+        "Scenario 7 - Coordinated Attack": generate_scenario_7_coordinated_attack(),
+        "Scenario 8 - Cloud Data Breach": generate_scenario_8_cloud_data_breach()
     }
 
-    generated_paths = {}
-    for filename, gen_func in generators.items():
-        file_path = dir_path / filename
-        gen_func(file_path)
-        generated_paths[filename] = file_path
+    filenames = {
+        "Scenario 1 - Port Scan": "scenario1_port_scan.csv",
+        "Scenario 2 - Host Scan": "scenario2_host_scan.csv",
+        "Scenario 3 - Data Exfiltration": "scenario3_data_exfiltration.csv",
+        "Scenario 4 - Multi-Stage Attack": "scenario4_multi_stage.csv",
+        "Scenario 5 - Benign Baseline": "scenario5_benign.csv",
+        "Scenario 6 - Persistent Threat": "scenario6_persistent_threat.csv",
+        "Scenario 7 - Coordinated Attack": "scenario7_coordinated_attack.csv",
+        "Scenario 8 - Cloud Data Breach": "scenario8_cloud_data_breach.csv"
+    }
 
-    return generated_paths
+    for name, df in datasets.items():
+        filepath = os.path.join(output_dir, filenames[name])
+        df.to_csv(filepath, index=False)
+
+    return datasets
 
 
 if __name__ == "__main__":
-    paths = generate_all_synthetic_datasets()
-    print(f"Successfully generated {len(paths)} synthetic datasets:")
-    for name, p in paths.items():
-        print(f" - {name} -> {p}")
+    generate_all_datasets()
+

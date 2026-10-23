@@ -1,13 +1,19 @@
-"""NetSleuth package root.
+"""NetSleuth: Tactical Threat Intelligence & Forensic Analysis Platform."""
 
-NetSleuth: An Explainable Network Attack Timeline Reconstruction
-and Threat Analysis System.
-"""
+from .loader import load_flows
+from .detectors import run_all_detectors
+from .incidents import build_incidents, generate_forensic_dossier
+from .graph import plot_graph, get_top_communicators
+from .evaluation import evaluate_all_scenarios
 
-__version__ = "0.1.0"
-__author__ = "NetSleuth Team"
-__status__ = "Phase 1 - Scaffolding"
+__version__ = "1.0.0"
 
 __all__ = [
-    "__version__",
+    "load_flows",
+    "run_all_detectors",
+    "build_incidents",
+    "generate_forensic_dossier",
+    "plot_graph",
+    "get_top_communicators",
+    "evaluate_all_scenarios",
 ]

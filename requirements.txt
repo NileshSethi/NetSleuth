@@ -1,19 +1,5 @@
-# ==============================================================================
-# NetSleuth - Core Dependencies (requirements.txt)
-# ==============================================================================
-# Python 3.10+ required.
-# Install with:
-#     pip install -r requirements.txt
-# ==============================================================================
-
-# Data ingestion, schema validation, tabular manipulation, and time-series sorting
-pandas>=2.1.0,<3.0.0
-
-# Interactive local cybersecurity analyst web dashboard
-streamlit>=1.30.0,<2.0.0
-
-# Rich, interactive data visualizations (timeline charts, volume distribution)
-plotly>=5.18.0,<6.0.0
-
-# Graph data structure and network topology analysis (directed host communication)
-networkx>=3.2.0,<4.0.0
+pandas>=2.0.0
+streamlit>=1.30.0
+plotly>=5.18.0
+networkx>=3.0
+pytest>=8.0.0

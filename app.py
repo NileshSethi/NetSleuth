@@ -1,489 +1,1136 @@
-"""NetSleuth: Streamlit Web Application Entry Point.
+"""NetSleuth: Explainable Network Threat Investigation & Attack Reconstruction System."""
 
-An Explainable Network Attack Timeline Reconstruction and Threat Analysis System.
-Provides an interactive forensic analyst dashboard for investigating simulated cloud flow logs.
-"""
-
-import io
 import sys
-from pathlib import Path
-from typing import Optional, List
+# Invalidate in-memory cached submodules so long-running Streamlit instances load fresh code
+for _mod in list(sys.modules.keys()):
+    if _mod.startswith("src.netsleuth"):
+        del sys.modules[_mod]
 
-# Ensure 'src' is on sys.path for local module discovery
-src_path = Path(__file__).resolve().parent / "src"
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
-
+import os
+import glob
 import pandas as pd
+import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
+from src.netsleuth.loader import load_flows
+from src.netsleuth.detectors import run_all_detectors
+from src.netsleuth.incidents import build_incidents, generate_forensic_dossier
+from src.netsleuth.graph import plot_graph, get_top_communicators
+from src.netsleuth.evaluation import evaluate_all_scenarios
 
-from netsleuth.config import DetectionConfig, CorrelationConfig, ScoringConfig
-from netsleuth.parser import load_and_validate_flow_csv
-from netsleuth.detectors import run_all_detectors, Alert
-from netsleuth.correlation import correlate_alerts_into_incidents, Incident
-from netsleuth.scoring import score_all_incidents
-from netsleuth.timeline import build_incident_timeline, extract_timeline_events
-from netsleuth.graph_analysis import build_communication_graph, generate_network_graph_figure, calculate_host_metrics
-from netsleuth.reporting import generate_incident_markdown_report, generate_batch_executive_summary
-from netsleuth.evaluation import evaluate_detection_performance, benchmark_all_scenarios
+# Configure Streamlit page layout and branding
+st.set_page_config(
+    page_title="NetSleuth | Network Threat Investigation Platform",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-
-# Preset Benchmark Scenario Mapping
-SCENARIOS = {
-    "Scenario 01: Benign Enterprise Baseline": "data/synthetic/scenario_01_benign.csv",
-    "Scenario 02: Vertical Port Scan Reconnaissance": "data/synthetic/scenario_02_port_scan.csv",
-    "Scenario 03: Horizontal Host Sweep Discovery": "data/synthetic/scenario_03_host_scan.csv",
-    "Scenario 04: Outbound Data Exfiltration Spike": "data/synthetic/scenario_04_exfiltration.csv",
-    "Scenario 05: Multi-Stage Blended APT Intrusion": "data/synthetic/scenario_05_blended_attack.csv",
-}
-
-
-def _safe_styler_map(styler, func, subset=None):
-    """Safely apply cell-wise styler functions across pandas versions (map in 2.1+, applymap in <2.1)."""
-    if hasattr(styler, "map"):
-        return styler.map(func, subset=subset)
-    return styler.applymap(func, subset=subset)
-
-
-def build_timeline_plotly_chart(timeline_df: pd.DataFrame) -> go.Figure:
-    """Create an interactive Plotly timeline scatter chart of network events and alerts."""
-    if timeline_df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="No events in timeline")
-        return fig
-
-    color_map = {
-        "PORT_SCAN_PROBE": "#F59E0B",
-        "HOST_DISCOVERY_SWEEP": "#EAB308",
-        "EXFILTRATION_BURST": "#EF4444",
-        "LATERAL_TRANSFER": "#8B5CF6",
-        "NETWORK_FLOW": "#3B82F6",
-        "RULE-PORT-SCAN": "#DC2626",
-        "RULE-HOST-SCAN": "#B91C1C",
-        "RULE-EXFIL-SPIKE": "#991B1B",
+# Enterprise Academic & SOC Styling (CSS Injection)
+st.markdown("""
+<style>
+    /* Compact top padding so header seamlessly pins to the top */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 98% !important;
     }
 
-    fig = px.scatter(
-        timeline_df,
-        x="timestamp",
-        y="source",
-        color="category",
-        symbol="is_alert",
-        symbol_map={True: "diamond", False: "circle"},
-        size="bytes",
-        size_max=22,
-        hover_data={
-            "timestamp": "|%Y-%m-%d %H:%M:%S",
-            "destination": True,
-            "port": True,
-            "bytes": ":,",
-            "action": True,
-            "description": False,
-        },
-        hover_name="description",
-        color_discrete_map=color_map,
-        title="<b>Chronological Incident Timeline & Alert Milestones</b>",
-    )
+    /* Hide default Streamlit chrome header decorations */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 1.5rem !important;
+    }
+    #MainMenu, footer, .stDeployButton {
+        display: none !important;
+    }
 
-    fig.update_traces(marker={"line": {"width": 1.5, "color": "white"}})
-    fig.update_layout(
-        height=450,
-        paper_bgcolor="rgba(15, 23, 42, 0.95)",
-        plot_bgcolor="rgba(15, 23, 42, 0.95)",
-        font={"color": "#E2E8F0"},
-        xaxis={"title": "UTC Timestamp", "gridcolor": "rgba(255, 255, 255, 0.1)"},
-        yaxis={"title": "Initiating Host (Source IP)", "gridcolor": "rgba(255, 255, 255, 0.1)"},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1.0},
-        margin={"l": 20, "r": 20, "t": 60, "b": 20},
-    )
-    return fig
+    /* Dark SOC command background and typography */
+    .stApp {
+        background-color: #070B14;
+        color: #E2E8F0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
 
+    /* Seamless Executive SOC Header Banner */
+    .soc-header-banner {
+        background: linear-gradient(135deg, #0B132B 0%, #1C2541 50%, #0B132B 100%);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        border-top: 3px solid #38BDF8;
+        border-radius: 8px;
+        padding: 20px 24px;
+        margin-bottom: 18px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+    }
+    .soc-header-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
+    .soc-category-tag {
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #38BDF8;
+        background: rgba(56, 189, 248, 0.12);
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        padding: 3px 8px;
+        border-radius: 4px;
+        display: inline-block;
+    }
+    .soc-main-title {
+        font-size: 2.3rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        margin: 0;
+        line-height: 1.1;
+        background: linear-gradient(90deg, #FFFFFF 0%, #BAE6FD 50%, #38BDF8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .soc-version-badge {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #94A3B8;
+        background: #0F172A;
+        border: 1px solid #334155;
+        padding: 2px 8px;
+        border-radius: 12px;
+        margin-left: 8px;
+        vertical-align: middle;
+        -webkit-text-fill-color: #94A3B8;
+    }
+    .soc-sub-title {
+        font-size: 0.98rem;
+        color: #94A3B8;
+        margin: 6px 0 14px 0;
+        line-height: 1.4;
+    }
+    .soc-meta-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .soc-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #CBD5E1;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 4px;
+        padding: 4px 10px;
+    }
+    .soc-pill-active {
+        color: #34D399;
+        border-color: rgba(52, 211, 153, 0.4);
+        background: rgba(16, 185, 129, 0.12);
+    }
 
-def main():
-    st.set_page_config(
-        page_title="NetSleuth — Network Threat Analysis & Timeline",
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
+    /* KPI Summary Card Styling */
+    .kpi-container {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+    .kpi-card {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 6px;
+        padding: 12px 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    .kpi-label {
+        color: #94A3B8;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+    }
+    .kpi-value {
+        color: #F8FAFC;
+        font-size: 1.8rem;
+        font-weight: 800;
+        line-height: 1.2;
+    }
 
-    # Custom Header Style
-    st.markdown(
-        """
-        <style>
-        .metric-card {
-            background-color: #1E293B;
-            border-radius: 8px;
-            padding: 16px;
-            border-left: 4px solid #3B82F6;
+    /* Incident Card Glassmorphism Container */
+    .incident-panel {
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 8px;
+        padding: 22px;
+        margin-bottom: 20px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    }
+
+    /* Severity Badges */
+    .badge-critical {
+        background: rgba(239, 68, 68, 0.2);
+        color: #F87171;
+        border: 1px solid #EF4444;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-weight: 800;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+    }
+    .badge-high {
+        background: rgba(249, 115, 22, 0.2);
+        color: #FB923C;
+        border: 1px solid #F97316;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-weight: 800;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+    }
+    .badge-medium {
+        background: rgba(245, 158, 11, 0.2);
+        color: #FBBF24;
+        border: 1px solid #F59E0B;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-weight: 800;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+    }
+    .badge-low {
+        background: rgba(16, 185, 129, 0.2);
+        color: #34D399;
+        border: 1px solid #10B981;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-weight: 800;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+    }
+
+    /* --------------------------------------------------------- */
+    /* PROMINENT MITRE ATT&CK KILL CHAIN PROGRESSION PIPELINE     */
+    /* --------------------------------------------------------- */
+    .kc-pipeline-wrapper {
+        background: #0A0F1D;
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        border-radius: 8px;
+        padding: 16px;
+        margin: 16px 0;
+    }
+    .kc-pipeline-title {
+        font-size: 0.82rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #38BDF8;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .kc-pipeline-stepper {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .kc-stage-card {
+        flex: 1;
+        min-width: 220px;
+        padding: 12px 14px;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+    }
+    .kc-stage-active-recon {
+        background: linear-gradient(135deg, rgba(2, 132, 199, 0.25) 0%, rgba(15, 23, 42, 0.9) 100%);
+        border: 1.5px solid #38BDF8;
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
+    }
+    .kc-stage-active-lateral {
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(15, 23, 42, 0.9) 100%);
+        border: 1.5px solid #F59E0B;
+        box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);
+    }
+    .kc-stage-active-exfil {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0%, rgba(15, 23, 42, 0.9) 100%);
+        border: 1.5px solid #EF4444;
+        box-shadow: 0 0 15px rgba(239, 68, 68, 0.25);
+    }
+    .kc-stage-inactive {
+        background: rgba(15, 23, 42, 0.45);
+        border: 1px dashed rgba(100, 116, 139, 0.35);
+        opacity: 0.55;
+    }
+    .kc-stage-num {
+        font-size: 0.7rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+    }
+    .kc-stage-name {
+        font-size: 0.95rem;
+        font-weight: 800;
+        color: #F8FAFC;
+        margin-bottom: 4px;
+    }
+    .kc-stage-tech {
+        font-size: 0.75rem;
+        font-family: monospace;
+        color: #94A3B8;
+    }
+    .kc-stage-status-badge {
+        display: inline-block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 3px;
+        margin-top: 6px;
+        text-transform: uppercase;
+    }
+    .kc-arrow {
+        color: #475569;
+        font-size: 1.4rem;
+        font-weight: 800;
+        user-select: none;
+    }
+
+    /* Risk Score Gauge Box */
+    .risk-score-box {
+        background: rgba(10, 15, 29, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+    }
+    .risk-score-num {
+        font-size: 2.4rem;
+        font-weight: 900;
+        line-height: 1;
+        margin-bottom: 6px;
+    }
+    .risk-bar-container {
+        height: 8px;
+        background: rgba(51, 65, 85, 0.5);
+        border-radius: 4px;
+        overflow: hidden;
+        margin: 8px 0;
+    }
+    .risk-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+    }
+
+    /* Tabs styling */
+    button[data-baseweb="tab"] {
+        color: #94A3B8 !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+    }
+    button[aria-selected="true"] {
+        color: #38BDF8 !important;
+        border-bottom-color: #38BDF8 !important;
+    }
+
+    /* --------------------------------------------------------- */
+    /* ULTRA-PREMIUM TACTICAL CYBER SIDEBAR STYLING              */
+    /* --------------------------------------------------------- */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #070B14 0%, #0D1527 50%, #070B14 100%) !important;
+        border-right: 1px solid rgba(56, 189, 248, 0.22) !important;
+        box-shadow: 6px 0 24px rgba(0, 0, 0, 0.55);
+    }
+    section[data-testid="stSidebar"] div.block-container {
+        padding-top: 1.2rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+
+    /* Sidebar Brand Title */
+    .sidebar-header-box {
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .sidebar-brand-name {
+        font-size: 1.35rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        line-height: 1.1;
+        color: #F8FAFC;
+        margin: 2px 0;
+    }
+    .sidebar-brand-desc {
+        color: #64748B;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    /* Streamlined Scenario Summary Card */
+    .scenario-summary-box {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.15);
+        border-radius: 6px;
+        padding: 10px 12px;
+        margin: 8px 0 12px 0;
+    }
+    .scenario-summary-title {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #F1F5F9;
+        margin-bottom: 6px;
+        line-height: 1.3;
+    }
+    .scenario-meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.72rem;
+        margin-bottom: 4px;
+    }
+    .scenario-meta-label {
+        color: #64748B;
+        font-weight: 600;
+    }
+    .scenario-meta-val {
+        color: #CBD5E1;
+        font-family: monospace;
+        font-weight: 600;
+        font-size: 0.72rem;
+    }
+
+    /* Streamlined Detection Heuristics List */
+    .heuristics-box {
+        background: rgba(15, 23, 42, 0.5);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        border-radius: 6px;
+        padding: 8px 10px;
+        margin: 6px 0 12px 0;
+    }
+    .heuristic-row {
+        padding: 5px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .heuristic-row:last-child {
+        border-bottom: none;
+    }
+    .heuristic-name {
+        font-size: 0.73rem;
+        font-weight: 700;
+        color: #E2E8F0;
+    }
+    .heuristic-spec {
+        font-size: 0.7rem;
+        font-family: monospace;
+        color: #94A3B8;
+    }
+
+    /* Minimal About Box */
+    .about-sidebar-box {
+        font-size: 0.72rem;
+        color: #64748B;
+        line-height: 1.4;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* Incident Details Seamless Balanced Grid */
+    .incident-details-grid {
+        display: grid;
+        grid-template-columns: 1fr 1.15fr;
+        gap: 16px;
+        margin-top: 14px;
+        align-items: stretch;
+    }
+    @media (max-width: 900px) {
+        .incident-details-grid {
+            grid-template-columns: 1fr;
         }
-        .sev-badge-critical { color: #EF4444; font-weight: bold; }
-        .sev-badge-high { color: #F97316; font-weight: bold; }
-        .sev-badge-medium { color: #FBBF24; font-weight: bold; }
-        .sev-badge-low { color: #10B981; font-weight: bold; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    }
+    .grid-col-card {
+        background: rgba(10, 15, 29, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 8px;
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }
+    .detail-card-title {
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #94A3B8;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 8px;
+    }
+    .audit-item {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        border-radius: 5px;
+        padding: 7px 11px;
+        margin-bottom: 7px;
+        font-family: monospace;
+        font-size: 0.82rem;
+        color: #38BDF8;
+    }
+    .target-tag {
+        display: inline-block;
+        background: rgba(56, 189, 248, 0.12);
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        color: #38BDF8;
+        font-family: monospace;
+        font-size: 0.82rem;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 4px;
+        margin: 3px 6px 3px 0;
+    }
+    .playbook-step {
+        background: rgba(15, 23, 42, 0.85);
+        border-left: 3.5px solid #38BDF8;
+        border-radius: 0 6px 6px 0;
+        padding: 10px 14px;
+        margin-bottom: 10px;
+        font-size: 0.83rem;
+        line-height: 1.45;
+        color: #CBD5E1;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    st.title("🔍 NetSleuth: Explainable Threat Analysis System")
-    st.caption(
-        "Network Attack Timeline Reconstruction, Graph Analysis & Threat Prioritization | "
-        "Defensive Forensic Decision Support"
-    )
+# Helper function to format UTC timestamps cleanly
+def format_time(t) -> str:
+    """Format timestamp into standardized UTC representation."""
+    try:
+        ts = pd.to_datetime(t)
+        return ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+    except Exception:
+        return str(t)
 
-    # --------------------------------------------------------------------------
-    # Sidebar: Data Ingestion & Configuration
-    # --------------------------------------------------------------------------
-    with st.sidebar:
-        st.header("⚙️ Data & Detection Settings")
+# Helper to format bytes
+def format_bytes_human(b: int) -> str:
+    if b >= 1_000_000:
+        return f"{b / 1_000_000:.2f} MB"
+    elif b >= 1_000:
+        return f"{b / 1_000:.1f} KB"
+    return f"{b:,} B"
 
-        data_source = st.radio(
-            "Select Input Source",
-            ["Benchmark Synthetic Scenario", "Upload Custom Flow CSV"],
-            index=0,
-        )
+# -------------------------------------------------------------
+# SIDEBAR CONFIGURATION: TACTICAL INVESTIGATION DECK
+# -------------------------------------------------------------
+st.sidebar.html("""
+<div class="sidebar-header-box">
+    <div class="sidebar-brand-name">NetSleuth</div>
+    <div class="sidebar-brand-desc">Cloud Network Threat Forensics</div>
+</div>
+""")
 
-        flow_df: Optional[pd.DataFrame] = None
-        source_name = ""
+data_dir = "data/synthetic"
+scenario_files = sorted(glob.glob(os.path.join(data_dir, "*.csv")))
 
-        if data_source == "Benchmark Synthetic Scenario":
-            chosen_scenario = st.selectbox("Benchmark Scenarios", list(SCENARIOS.keys()), index=4)
-            scenario_path = Path(SCENARIOS[chosen_scenario])
-            source_name = chosen_scenario
-            if scenario_path.exists():
-                try:
-                    flow_df = load_and_validate_flow_csv(scenario_path)
-                except Exception as e:
-                    st.error(f"Failed to load scenario: {e}")
+scenario_display_names = {
+    "scenario1_port_scan.csv": "Scenario 1 — External Port Scan (Reconnaissance)",
+    "scenario2_host_scan.csv": "Scenario 2 — Internal Host Sweep (Lateral Movement)",
+    "scenario3_data_exfiltration.csv": "Scenario 3 — Outbound Data Exfiltration (Data Theft)",
+    "scenario4_multi_stage.csv": "Scenario 4 — Multi-Stage Enterprise Attack (Full Kill Chain)",
+    "scenario5_benign.csv": "Scenario 5 — Benign Baseline Traffic (Zero False Alarms)",
+    "scenario6_persistent_threat.csv": "Scenario 6 — Persistent Threat Actor (Temporal Session Split)",
+    "scenario7_coordinated_attack.csv": "Scenario 7 — Coordinated Multi-Host Intrusion (Dual Attackers)",
+    "scenario8_cloud_data_breach.csv": "Scenario 8 — Cloud Database Breach (Massive 12 MB Exfil)"
+}
+
+SCENARIO_DOSSIERS = {
+    "scenario1_port_scan.csv": {
+        "title": "External Reconnaissance Probe",
+        "actor": "198.51.100.55",
+        "target": "10.0.1.20 (Web Server)",
+        "vector": "18 Ports in 17s (Vertical Scan)",
+        "mitre": "T1046: Network Service Discovery"
+    },
+    "scenario2_host_scan.csv": {
+        "title": "Internal Lateral Movement Sweep",
+        "actor": "10.0.1.15",
+        "target": "12 Subnet Endpoints",
+        "vector": "Port 445 SMB Horizontal Sweep",
+        "mitre": "T1018: Remote System Discovery"
+    },
+    "scenario3_data_exfiltration.csv": {
+        "title": "Outbound Asset Exfiltration",
+        "actor": "10.0.1.45",
+        "target": "203.0.113.88 (External C2)",
+        "vector": "2,400,000 Bytes in 24s",
+        "mitre": "T1048: Exfiltration Over Alt. Protocol"
+    },
+    "scenario4_multi_stage.csv": {
+        "title": "Full Enterprise Kill Chain Intrusion",
+        "actor": "10.0.1.99",
+        "target": "10.0.1.20, Subnet, 203.0.113.88",
+        "vector": "Port Scan → Subnet Sweep → 6.3 MB Exfil",
+        "mitre": "T1046 → T1018 → T1048"
+    },
+    "scenario5_benign.csv": {
+        "title": "Subnet Normal Baseline Traffic",
+        "actor": "Normal Subnet Hosts",
+        "target": "DNS, Web, SSH, Email",
+        "vector": "Zero Malicious Flows (320 flows)",
+        "mitre": "Normal Baseline Operations"
+    },
+    "scenario6_persistent_threat.csv": {
+        "title": "Temporal Session Boundary Split",
+        "actor": "10.0.1.105",
+        "target": "10.0.1.20 & RDP Endpoints",
+        "vector": "Scan (T+60s) → 12m Gap → Exfiltration",
+        "mitre": "T1046 (Recon) & T1048 (Theft)"
+    },
+    "scenario7_coordinated_attack.csv": {
+        "title": "Coordinated Multi-Host Intrusion",
+        "actor": "198.51.100.77 & 10.0.1.55",
+        "target": "Perimeter Host & Internal SSH",
+        "vector": "External Probe + Internal 3.5 MB Exfil",
+        "mitre": "T1046 (Ext) & T1018/T1048 (Int)"
+    },
+    "scenario8_cloud_data_breach.csv": {
+        "title": "Cloud Database Massive Exfil",
+        "actor": "10.0.1.80",
+        "target": "203.0.113.200 (Adversary Drop)",
+        "vector": "12,000,000 Bytes (10x1.2 MB)",
+        "mitre": "T1048: Data Theft"
+    }
+}
+
+scenario_options = {}
+for f in scenario_files:
+    fname = os.path.basename(f)
+    disp = scenario_display_names.get(fname, fname.replace(".csv", "").replace("_", " ").title())
+    scenario_options[disp] = f
+
+# Default to Scenario 4 (Multi-Stage Enterprise Attack)
+default_idx = 3 if len(scenario_options) > 3 else 0
+st.sidebar.markdown("<div style='font-size:0.75rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#94A3B8; margin-bottom:4px;'>INVESTIGATION SCENARIO:</div>", unsafe_allow_html=True)
+choice = st.sidebar.selectbox("Active Benchmark Scenario", list(scenario_options.keys()), index=default_idx, label_visibility="collapsed")
+selected_file = scenario_options.get(choice)
+
+# Streamlined Scenario Summary
+if selected_file:
+    curr_fname = os.path.basename(selected_file)
+    meta = SCENARIO_DOSSIERS.get(curr_fname, {})
+    if meta:
+        st.sidebar.html(f"""
+        <div class="scenario-summary-box">
+            <div class="scenario-summary-title">{meta['title']}</div>
+            <div class="scenario-meta-row">
+                <span class="scenario-meta-label">Threat Actor:</span>
+                <span class="scenario-meta-val">{meta['actor']}</span>
+            </div>
+            <div class="scenario-meta-row">
+                <span class="scenario-meta-label">Target:</span>
+                <span class="scenario-meta-val">{meta['target']}</span>
+            </div>
+            <div class="scenario-meta-row">
+                <span class="scenario-meta-label">Vector:</span>
+                <span class="scenario-meta-val">{meta['vector']}</span>
+            </div>
+            <div class="scenario-meta-row">
+                <span class="scenario-meta-label">MITRE Ref:</span>
+                <span class="scenario-meta-val">{meta['mitre']}</span>
+            </div>
+        </div>
+        """)
+
+# Active Detection Heuristics List
+st.sidebar.html("""
+<div style="font-size:0.72rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#64748B; margin-top:10px; margin-bottom:4px;">
+    Detection Rules (Sliding Windows)
+</div>
+<div class="heuristics-box">
+    <div class="heuristic-row">
+        <div class="heuristic-name">Port Scan &bull; T1046</div>
+        <div class="heuristic-spec">&ge; 10 unique ports / 60s</div>
+    </div>
+    <div class="heuristic-row">
+        <div class="heuristic-name">Host Sweep &bull; T1018</div>
+        <div class="heuristic-spec">&ge; 5 unique hosts / 60s</div>
+    </div>
+    <div class="heuristic-row">
+        <div class="heuristic-name">Data Exfiltration &bull; T1048</div>
+        <div class="heuristic-spec">&ge; 500 KB outbound / 120s</div>
+    </div>
+</div>
+""")
+
+# Minimal About NetSleuth
+st.sidebar.html("""
+<div class="about-sidebar-box">
+    <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:#64748B; margin-bottom:3px;">About NetSleuth</div>
+    <div>An explainable network threat analysis engine for AWS VPC Flow Logs. Uses deterministic sliding windows and additive scoring to correlate attack milestones without black-box ML.</div>
+</div>
+""")
+
+if not selected_file:
+    st.warning("Please select a network flow scenario to initialize analysis.")
+    st.stop()
+
+# Ingest and sanitize dataset
+try:
+    df, dropped_rows = load_flows(selected_file)
+except Exception as e:
+    st.error(f"Failed to ingest flow records: {e}")
+    st.stop()
+
+# Execute threat correlation and incident generation
+alerts = run_all_detectors(df)
+incidents = build_incidents(alerts)
+
+# Compute global threat posture
+highest_level = "NORMAL"
+max_score = 0
+if incidents:
+    scores = [inc["score"] for inc in incidents]
+    max_score = max(scores)
+    if max_score >= 80:
+        highest_level = "CRITICAL"
+    elif max_score >= 60:
+        highest_level = "HIGH"
+    elif max_score >= 30:
+        highest_level = "MEDIUM"
+    else:
+        highest_level = "LOW"
+
+# -------------------------------------------------------------
+# SEAMLESS EXECUTIVE SOC HEADER BANNER
+# -------------------------------------------------------------
+st.markdown("""
+<div class="soc-header-banner">
+    <div class="soc-header-top">
+        <div>
+            <span class="soc-category-tag">Cloud Network Threat Investigation</span>
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 4px;">
+                <h1 class="soc-main-title">NetSleuth</h1>
+                <span class="soc-version-badge">SOC v2.4 Enterprise</span>
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <span class="soc-pill soc-pill-active">ENGINE ONLINE</span>
+        </div>
+    </div>
+    <div class="soc-sub-title">An Explainable Network Threat Investigation, Incident Timeline Reconstruction, and Forensic Analysis System</div>
+    <div class="soc-meta-pills">
+        <span class="soc-pill">AWS VPC Flow Log Specification</span>
+        <span class="soc-pill">MITRE ATT&amp;CK Enterprise Matrix</span>
+        <span class="soc-pill">Deterministic Sliding Windows</span>
+        <span class="soc-pill">Additive Scoring (0–100)</span>
+        <span class="soc-pill">Zero Label Leakage Verified</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# -------------------------------------------------------------
+# TOP EXECUTIVE KPI SUMMARY BAR
+# -------------------------------------------------------------
+posture_color = {
+    "CRITICAL": "#F87171",
+    "HIGH": "#FB923C",
+    "MEDIUM": "#FBBF24",
+    "LOW": "#34D399",
+    "NORMAL": "#38BDF8"
+}.get(highest_level, "#38BDF8")
+
+st.markdown(f"""
+<div class="kpi-container">
+    <div class="kpi-card">
+        <div class="kpi-label">Flow Records</div>
+        <div class="kpi-value">{len(df):,}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Alerts Triggered</div>
+        <div class="kpi-value" style="color: {'#FBBF24' if len(alerts) > 0 else '#34D399'};">{len(alerts)}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Correlated Incidents</div>
+        <div class="kpi-value" style="color: {'#F87171' if len(incidents) > 0 else '#34D399'};">{len(incidents)}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Dropped Corrupt</div>
+        <div class="kpi-value" style="color: #94A3B8;">{dropped_rows}</div>
+    </div>
+    <div class="kpi-card" style="border-color: {posture_color}44;">
+        <div class="kpi-label">System Threat Posture</div>
+        <div class="kpi-value" style="color: {posture_color};">{highest_level}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# -------------------------------------------------------------
+# FIVE STRUCTURED ANALYTIC TABS
+# -------------------------------------------------------------
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Threat Incidents",
+    "Attack Timeline",
+    "Network Topology",
+    "Flow Telemetry",
+    "Forensic Dossier & Evaluation"
+])
+
+# -------------------------------------------------------------
+# TAB 1: THREAT INCIDENTS & PROMINENT KILL CHAIN PROGRESSION
+# -------------------------------------------------------------
+with tab1:
+    st.subheader("Correlated Threat Incidents & Explainable Scoring")
+    if not incidents:
+        st.info("Defensive Telemetry Clean: Zero malicious threat signatures identified in this flow capture.")
+    else:
+        for inc in incidents:
+            badge_class = f"badge-{inc['level'].lower()}"
+            t_start = format_time(inc["start_time"])
+            t_end = format_time(inc["end_time"])
+
+            # Determine presence of each MITRE stage for this incident
+            has_recon = "port_scan" in inc["rules_triggered"]
+            has_lateral = "host_scan" in inc["rules_triggered"]
+            has_exfil = "exfiltration" in inc["rules_triggered"]
+
+            recon_card_class = "kc-stage-card kc-stage-active-recon" if has_recon else "kc-stage-card kc-stage-inactive"
+            lateral_card_class = "kc-stage-card kc-stage-active-lateral" if has_lateral else "kc-stage-card kc-stage-inactive"
+            exfil_card_class = "kc-stage-card kc-stage-active-exfil" if has_exfil else "kc-stage-card kc-stage-inactive"
+
+            recon_badge = "<span class='kc-stage-status-badge' style='background:#0284C7; color:#FFF;'>ACTIVE / TRIGGERED</span>" if has_recon else "<span class='kc-stage-status-badge' style='background:#334155; color:#94A3B8;'>NOT OBSERVED</span>"
+            lateral_badge = "<span class='kc-stage-status-badge' style='background:#D97706; color:#FFF;'>ACTIVE / TRIGGERED</span>" if has_lateral else "<span class='kc-stage-status-badge' style='background:#334155; color:#94A3B8;'>NOT OBSERVED</span>"
+            exfil_badge = "<span class='kc-stage-status-badge' style='background:#DC2626; color:#FFF;'>ACTIVE / TRIGGERED</span>" if has_exfil else "<span class='kc-stage-status-badge' style='background:#334155; color:#94A3B8;'>NOT OBSERVED</span>"
+
+            # Color styling for risk score
+            score_color = {
+                "Critical": "#EF4444",
+                "High": "#F97316",
+                "Medium": "#F59E0B",
+                "Low": "#10B981"
+            }.get(inc["level"], "#38BDF8")
+
+            # Format breakdown items with high-contrast styling
+            audit_items_html = ""
+            for item in inc["breakdown"]:
+                if "Total calculated priority score" in item:
+                    audit_items_html += f'<div class="audit-item" style="border-color: {score_color}; background: rgba(56, 189, 248, 0.12); color: #F8FAFC; font-weight: 700;">{item}</div>'
+                else:
+                    audit_items_html += f'<div class="audit-item"><span style="color:#38BDF8;">+</span> {item}</div>'
+
+            # Format targeted assets tags
+            if inc["targets"]:
+                target_chips = "".join([f'<span class="target-tag">{t}</span>' for t in inc["targets"]])
+                target_chips_html = f'<div style="display: flex; flex-wrap: wrap; gap: 6px;">{target_chips}</div><div style="font-size:0.75rem; color:#94A3B8; margin-top:8px;"><b>Scope:</b> {len(inc["targets"])} internal target endpoint(s) impacted.</div>'
             else:
-                st.warning(f"Benchmark file not found: {scenario_path}. Generate via synthetic module.")
-        else:
-            uploaded_file = st.file_uploader("Upload Network Flow CSV", type=["csv"])
-            if uploaded_file is not None:
-                source_name = uploaded_file.name
-                try:
-                    flow_df = load_and_validate_flow_csv(uploaded_file)
-                except Exception as e:
-                    st.error(f"CSV Validation Error: {e}")
+                target_chips_html = '<span style="color:#94A3B8; font-size:0.8rem;">Multiple subnet endpoints scanned during horizontal sweep.</span>'
 
-        st.markdown("---")
-        st.subheader("🎯 Heuristic Thresholds")
+            # Format remediation steps with clean HTML
+            import re
+            playbook_steps_html = ""
+            for idx, act in enumerate(inc["remediations"], start=1):
+                cleaned = act.replace("**", "")
+                if ":" in cleaned:
+                    title, desc = cleaned.split(":", 1)
+                    desc_styled = re.sub(r"`([^`]+)`", r'<code style="font-family:monospace; color:#38BDF8; background:rgba(56,189,248,0.15); padding:1px 6px; border-radius:3px; border:1px solid rgba(56,189,248,0.25);">\1</code>', desc.strip())
+                    playbook_steps_html += f'<div class="playbook-step"><strong style="color:#F8FAFC;">{idx:02d}. {title.strip()}:</strong> <span style="color:#CBD5E1;">{desc_styled}</span></div>'
+                else:
+                    playbook_steps_html += f'<div class="playbook-step">{idx:02d}. {cleaned}</div>'
 
-        with st.expander("Detection Parameters", expanded=False):
-            port_window = st.slider("Port Scan Window (sec)", 10, 300, 60, 10)
-            port_thresh = st.slider("Port Scan Threshold (distinct ports)", 5, 50, 15, 1)
+            with st.container():
+                st.html(f"""
+                <div class="incident-panel">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 16px;">
+                        <div>
+                            <div style="font-size: 1.4rem; font-weight: 800; color: #F8FAFC; margin-bottom: 4px;">
+                                {inc['incident_id']} — Threat Actor IP: 
+                                <span style="font-family: monospace; color: #38BDF8; background: #0F172A; padding: 2px 10px; border-radius: 4px; border: 1px solid #1E293B;">{inc['src_ip']}</span>
+                                <span class="{badge_class}" style="margin-left: 8px;">{inc['level'].upper()} PRIORITY</span>
+                            </div>
+                            <div style="color: #94A3B8; font-size: 0.88rem;">
+                                <b>Investigation Interval:</b> {t_start} to {t_end} &nbsp;|&nbsp; 
+                                <b>Session Duration:</b> {inc['duration_seconds']}s &nbsp;|&nbsp; 
+                                <b>Correlated Alerts:</b> {inc['alert_count']} alert(s) &nbsp;|&nbsp; 
+                                <b>Total Transferred:</b> {format_bytes_human(inc['total_bytes'])}
+                            </div>
+                        </div>
+                        <div class="risk-score-box" style="min-width: 220px; border-color: {score_color}66;">
+                            <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #94A3B8;">PRIORITY RISK SCORE</div>
+                            <div class="risk-score-num" style="color: {score_color};">{inc['score']} <span style="font-size: 1rem; color: #94A3B8;">/ 100</span></div>
+                            <div class="risk-bar-container">
+                                <div class="risk-bar-fill" style="width: {inc['score']}%; background: {score_color};"></div>
+                            </div>
+                            <div style="font-size: 0.75rem; font-weight: 700; color: {score_color}; text-transform: uppercase;">{inc['level']} Priority Rating</div>
+                        </div>
+                    </div>
 
-            host_window = st.slider("Host Scan Window (sec)", 30, 600, 120, 15)
-            host_thresh = st.slider("Host Scan Threshold (distinct hosts)", 3, 50, 10, 1)
+                    <!-- PROMINENT VISUAL MITRE ATT&CK KILL CHAIN PROGRESSION -->
+                    <div class="kc-pipeline-wrapper">
+                        <div class="kc-pipeline-title">
+                            MITRE ATT&amp;CK Cyber Kill Chain Attack Progression
+                        </div>
+                        <div class="kc-pipeline-stepper">
+                            <div class="{recon_card_class}">
+                                <div class="kc-stage-num" style="color: {'#38BDF8' if has_recon else '#64748B'};">STAGE 1: DISCOVERY</div>
+                                <div class="kc-stage-name">Reconnaissance</div>
+                                <div class="kc-stage-tech">T1046: Network Service Discovery</div>
+                                {recon_badge}
+                            </div>
+                            <div class="kc-arrow">&rarr;</div>
+                            <div class="{lateral_card_class}">
+                                <div class="kc-stage-num" style="color: {'#F59E0B' if has_lateral else '#64748B'};">STAGE 2: SPREAD</div>
+                                <div class="kc-stage-name">Lateral Movement Prep</div>
+                                <div class="kc-stage-tech">T1018: Remote System Discovery</div>
+                                {lateral_badge}
+                            </div>
+                            <div class="kc-arrow">&rarr;</div>
+                            <div class="{exfil_card_class}">
+                                <div class="kc-stage-num" style="color: {'#EF4444' if has_exfil else '#64748B'};">STAGE 3: OBJECTIVES</div>
+                                <div class="kc-stage-name">Actions on Objectives</div>
+                                <div class="kc-stage-tech">T1048: Data Exfiltration</div>
+                                {exfil_badge}
+                            </div>
+                        </div>
+                    </div>
 
-            exfil_window = st.slider("Exfil Window (sec)", 60, 900, 300, 30)
-            exfil_mb = st.slider("Exfil Byte Threshold (MB)", 5, 200, 50, 5)
-            exfil_bytes = exfil_mb * 1024 * 1024
+                    <!-- SEAMLESS BALANCED FORENSIC EVIDENCE & PLAYBOOK GRID -->
+                    <div class="incident-details-grid">
+                        <!-- LEFT CARD: FORENSIC SCORE AUDIT & TARGET SCOPE -->
+                        <div class="grid-col-card">
+                            <div class="detail-card-title">
+                                EXPLAINABLE SCORE CALCULATION
+                            </div>
+                            <div style="margin-bottom: 12px;">
+                                {audit_items_html}
+                            </div>
 
-        with st.expander("Correlation & Scoring", expanded=False):
-            corr_window = st.slider("Correlation Window (sec)", 60, 1800, 600, 60)
+                            <div class="detail-card-title" style="margin-top: auto; padding-top: 10px;">
+                                TARGETED ASSETS &amp; IMPACT SCOPE
+                            </div>
+                            <div>
+                                {target_chips_html}
+                            </div>
+                        </div>
 
-        det_config = DetectionConfig(
-            port_scan_window_sec=port_window,
-            port_scan_threshold=port_thresh,
-            host_scan_window_sec=host_window,
-            host_scan_threshold=host_thresh,
-            exfil_window_sec=exfil_window,
-            exfil_byte_threshold=exfil_bytes,
+                        <!-- RIGHT CARD: PRESCRIPTIVE CONTAINMENT PLAYBOOK (SOP) -->
+                        <div class="grid-col-card" style="border-left: 3.5px solid #38BDF8;">
+                            <div class="detail-card-title">
+                                PRESCRIPTIVE CONTAINMENT PLAYBOOK (SOP)
+                            </div>
+                            <div>
+                                {playbook_steps_html}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """)
+
+                st.write("")
+                with st.expander(f"Inspect {len(inc['alerts'])} Associated Alert Milestone(s)"):
+                    alert_table = pd.DataFrame(inc["alerts"])[["alert_id", "rule", "severity", "target", "reason"]]
+                    alert_table.columns = ["Alert ID", "Rule Name", "Severity", "Target", "Finding Summary"]
+                    st.dataframe(alert_table, use_container_width=True)
+
+
+# -------------------------------------------------------------
+# TAB 2: ATTACK TIMELINE
+# -------------------------------------------------------------
+with tab2:
+    st.subheader("Chronological Attack Progression & Kill Chain Narrative")
+    all_events = []
+    for inc in incidents:
+        for ev in inc["timeline"]:
+            all_events.append({
+                "Incident ID": inc["incident_id"],
+                "Timestamp": format_time(ev["time"]),
+                "Raw Timestamp": pd.to_datetime(ev["time"]),
+                "Kill Chain Stage": ev["stage"],
+                "Rule Name": ev["rule"],
+                "MITRE Reference": f"{ev['mitre_id']}: {ev['mitre_name']}",
+                "Severity": ev["severity"],
+                "Target": ev["target"],
+                "Finding Summary": ev["reason"]
+            })
+
+    if not all_events:
+        st.info("No suspicious timeline milestones recorded.")
+    else:
+        t_df = pd.DataFrame(all_events).sort_values(by="Raw Timestamp")
+
+        fig_time = px.scatter(
+            t_df,
+            x="Raw Timestamp",
+            y="Kill Chain Stage",
+            color="Severity",
+            symbol="Rule Name",
+            hover_data=["Incident ID", "Target", "MITRE Reference", "Finding Summary"],
+            title="Chronological Incident Progression by Kill Chain Phase",
+            color_discrete_map={"LOW": "#38BDF8", "MEDIUM": "#F59E0B", "HIGH": "#EF4444"},
+            template="plotly_dark"
         )
-        corr_config = CorrelationConfig(correlation_window_sec=corr_window)
-        scoring_config = ScoringConfig()
+        fig_time.update_traces(marker=dict(size=14, line=dict(width=1.5, color="#F8FAFC")))
+        fig_time.update_layout(
+            height=340,
+            margin=dict(l=20, r=20, t=50, b=20),
+            xaxis_title="Observed Event Timestamp (UTC)",
+            yaxis_title="Kill Chain Phase",
+            paper_bgcolor="rgba(15, 23, 42, 0.95)",
+            plot_bgcolor="rgba(15, 23, 42, 0.95)"
+        )
+        st.plotly_chart(fig_time, use_container_width=True)
 
-        st.markdown("---")
-        st.caption("NetSleuth v0.4.0 — Offline Synthetic Mode")
+        st.markdown("**Chronological Incident Audit Trail:**")
+        display_t_df = t_df.drop(columns=["Raw Timestamp"])
+        st.dataframe(display_t_df, use_container_width=True)
 
-    # Guard check: Ensure data is loaded
-    if flow_df is None or flow_df.empty:
-        st.info("👈 Please select a scenario or upload a CSV file from the sidebar to begin analysis.")
-        return
+# -------------------------------------------------------------
+# TAB 3: NETWORK TOPOLOGY
+# -------------------------------------------------------------
+with tab3:
+    st.subheader("Host Communication Topology & Traffic Distribution")
+    top_col, bottom_col = st.columns([3, 2])
+    with top_col:
+        fig_graph = plot_graph(df, incidents)
+        st.plotly_chart(fig_graph, use_container_width=True)
+    with bottom_col:
+        st.markdown("**Top Communicating Host Pairs (Volume & Frequency):**")
+        matrix_df = get_top_communicators(df, top_n=8)
+        st.dataframe(matrix_df, use_container_width=True)
 
-    # --------------------------------------------------------------------------
-    # Execute Pipeline: Detection -> Correlation -> Scoring
-    # --------------------------------------------------------------------------
-    with st.spinner("Executing detection heuristics and incident correlation..."):
-        alerts = run_all_detectors(flow_df, config=det_config)
-        incidents = correlate_alerts_into_incidents(alerts, config=corr_config)
-        scored_incidents = score_all_incidents(incidents, config=scoring_config)
+        st.caption("Visual Legend: Red = Confirmed Threat Actor IP | Amber = Targeted Host | Cyan = Normal Subnet Host")
 
-    # Collect flagged IPs
-    flagged_ips = [a.src_ip for a in alerts]
-    for a in alerts:
-        if a.dst_ip:
-            flagged_ips.append(a.dst_ip)
-    flagged_ips = sorted(list(set(flagged_ips)))
+# -------------------------------------------------------------
+# TAB 4: FLOW TELEMETRY
+# -------------------------------------------------------------
+with tab4:
+    st.subheader("Network Flow Telemetry & Protocol Inspection")
+    chart1, chart2, chart3 = st.columns(3)
 
-    # --------------------------------------------------------------------------
-    # Top KPI Metrics Banner
-    # --------------------------------------------------------------------------
-    total_flows = len(flow_df)
-    total_alerts = len(alerts)
-    total_incidents = len(scored_incidents)
-    max_score = scored_incidents[0].risk_score if scored_incidents else 0.0
-    dropped_rows = flow_df.attrs.get("dropped_row_count", 0)
+    with chart1:
+        proto_counts = df["protocol"].value_counts().reset_index()
+        proto_counts.columns = ["Protocol", "Count"]
+        fig_proto = px.pie(
+            proto_counts,
+            names="Protocol",
+            values="Count",
+            title="Protocol Distribution (TCP vs UDP)",
+            hole=0.45,
+            color_discrete_sequence=["#38BDF8", "#F59E0B", "#10B981"],
+            template="plotly_dark"
+        )
+        fig_proto.update_layout(height=260, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_proto, use_container_width=True)
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    with m1:
-        st.metric("Total Flows Analyzed", f"{total_flows:,}")
-    with m2:
-        st.metric("Valid Flows", f"{total_flows - dropped_rows:,}", delta=f"-{dropped_rows} dropped" if dropped_rows else None)
-    with m3:
-        st.metric("Threat Alerts", f"{total_alerts}", delta="Flagged" if total_alerts else "Clean")
-    with m4:
-        st.metric("Correlated Incidents", f"{total_incidents}")
-    with m5:
-        sev_color = "red" if max_score >= 80 else "orange" if max_score >= 60 else "green"
-        st.metric("Peak Threat Score", f"{max_score}/100")
+    with chart2:
+        action_counts = df["action"].value_counts().reset_index()
+        action_counts.columns = ["Action", "Count"]
+        fig_act = px.pie(
+            action_counts,
+            names="Action",
+            values="Count",
+            title="Firewall Disposition (ACCEPT vs REJECT)",
+            hole=0.45,
+            color_discrete_sequence=["#10B981", "#EF4444"],
+            template="plotly_dark"
+        )
+        fig_act.update_layout(height=260, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_act, use_container_width=True)
 
-    st.markdown("---")
+    with chart3:
+        top_ports = df["dst_port"].value_counts().head(7).reset_index()
+        top_ports.columns = ["Port", "Count"]
+        top_ports["Port"] = top_ports["Port"].astype(str)
+        fig_ports = px.bar(
+            top_ports,
+            x="Port",
+            y="Count",
+            title="Top Targeted Destination Ports",
+            color="Count",
+            color_continuous_scale="Viridis",
+            template="plotly_dark"
+        )
+        fig_ports.update_layout(height=260, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_ports, use_container_width=True)
 
-    # --------------------------------------------------------------------------
-    # Main Tabs
-    # --------------------------------------------------------------------------
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "🚨 Correlated Incidents & Scoring",
-        "⏱️ Chronological Timeline",
-        "🕸️ Host Topology Graph",
-        "📄 Forensic Report Export",
-        "📋 Raw Flow Telemetry",
-        "📊 Evaluation & Benchmarks",
-    ])
+    # Filterable network flow record inspector
+    st.markdown("**Interactive Flow Telemetry Explorer:**")
+    f_col1, f_col2, f_col3 = st.columns([2, 1, 1])
+    with f_col1:
+        ip_query = st.text_input("Filter by IP address (Source or Destination)", "")
+    with f_col2:
+        dir_filter = st.selectbox("Traffic Direction", ["ALL"] + sorted(df["direction"].unique().tolist()))
+    with f_col3:
+        action_filter = st.selectbox("Firewall Action", ["ALL"] + sorted(df["action"].unique().tolist()))
 
-    # --------------------------------------------------------------------------
-    # Tab 1: Correlated Incidents & Explainable Scoring
-    # --------------------------------------------------------------------------
-    with tab1:
-        if not scored_incidents:
-            st.success("✅ **Clean Network Traffic!** No suspicious anomalies or attack patterns detected.")
-            st.write("All network connection records remained within normal baseline thresholds.")
+    filtered_df = df.copy()
+    if ip_query.strip():
+        q = ip_query.strip()
+        filtered_df = filtered_df[(filtered_df["src_ip"].str.contains(q)) | (filtered_df["dst_ip"].str.contains(q))]
+    if dir_filter != "ALL":
+        filtered_df = filtered_df[filtered_df["direction"] == dir_filter]
+    if action_filter != "ALL":
+        filtered_df = filtered_df[filtered_df["action"] == action_filter]
+
+    st.write(f"Displaying **{len(filtered_df):,}** of **{len(df):,}** total flow records:")
+    st.dataframe(filtered_df.head(200), use_container_width=True)
+
+# -------------------------------------------------------------
+# TAB 5: FORENSIC DOSSIER & EVALUATION
+# -------------------------------------------------------------
+with tab5:
+    st.subheader("Formal Forensic Dossier Export & Ground-Truth Benchmarks")
+    dossier_col, eval_col = st.columns([1, 1])
+
+    with dossier_col:
+        st.markdown("#### Forensic Incident Dossier Export")
+        if not incidents:
+            st.info("No active incidents available for export.")
         else:
-            inc_options = {
-                f"{inc.incident_id} — {inc.primary_source_ip} (Score: {inc.risk_score}/100)": inc
-                for inc in scored_incidents
-            }
-            selected_inc_label = st.selectbox("Select Incident to Investigate", list(inc_options.keys()))
-            selected_incident: Incident = inc_options[selected_inc_label]
-
-            col_score, col_details = st.columns([1, 2])
-
-            with col_score:
-                st.markdown("### 🎯 Priority Risk Score")
-                score_val = selected_incident.risk_score
-                breakdown = selected_incident.score_breakdown or {}
-                sev_label = breakdown.get("severity_label", "MEDIUM")
-
-                st.progress(score_val / 100.0)
-                st.markdown(f"## **`{score_val} / 100`** — **{sev_label}**")
-
-                st.markdown("#### 🔬 Explainable Point Breakdown")
-                factors = breakdown.get("factors", {})
-
-                f1 = factors.get("rule_severity_and_diversity", {})
-                f2 = factors.get("target_breadth", {})
-                f3 = factors.get("volumetric_impact", {})
-
-                st.info(f"**Rule Severity & Diversity:** `{f1.get('points', 0)} / 40 pts`\n\n_{f1.get('explanation', '')}_")
-                st.info(f"**Target Blast Radius:** `{f2.get('points', 0)} / 30 pts`\n\n_{f2.get('explanation', '')}_")
-                st.info(f"**Volumetric Impact:** `{f3.get('points', 0)} / 30 pts`\n\n_{f3.get('explanation', '')}_")
-
-            with col_details:
-                st.markdown("### 📋 Incident Narrative")
-                st.markdown(f"> **{selected_incident.summary}**")
-
-                d_col1, d_col2, d_col3 = st.columns(3)
-                with d_col1:
-                    st.write(f"**Primary Attacker:** `{selected_incident.primary_source_ip}`")
-                    st.write(f"**Start Time:** `{selected_incident.start_time}`")
-                with d_col2:
-                    st.write(f"**Targets in Radius:** `{len(selected_incident.associated_ips) - 1}`")
-                    st.write(f"**End Time:** `{selected_incident.end_time}`")
-                with d_col3:
-                    st.write(f"**Duration:** `{round(selected_incident.duration_sec, 1)} seconds`")
-                    st.write(f"**Contributing Flows:** `{len(selected_incident.contributing_flow_ids)}`")
-
-                st.markdown("#### 🚨 Associated Detection Alerts")
-                alert_table_data = []
-                for a in selected_incident.alerts:
-                    alert_table_data.append({
-                        "Alert ID": a.alert_id,
-                        "Rule Name": a.rule_name,
-                        "Timestamp (UTC)": a.timestamp,
-                        "Severity": a.severity,
-                        "Source IP": a.src_ip,
-                        "Destination IP": a.dst_ip or "Multiple",
-                        "Contributing Flows": len(a.contributing_flow_ids),
-                    })
-                st.dataframe(pd.DataFrame(alert_table_data), use_container_width=True)
-
-    # --------------------------------------------------------------------------
-    # Tab 2: Chronological Incident Timeline
-    # --------------------------------------------------------------------------
-    with tab2:
-        if not scored_incidents:
-            st.info("No incidents detected to reconstruct timeline.")
-        else:
-            selected_incident = scored_incidents[0]
-            if "selected_incident" in locals():
-                selected_incident = selected_incident
-
-            st.markdown(f"### Chronological Attack Reconstruction: `{selected_incident.incident_id}`")
-            timeline_df = build_incident_timeline(selected_incident, flow_df)
-
-            if not timeline_df.empty:
-                # Interactive Plotly Chart
-                fig_timeline = build_timeline_plotly_chart(timeline_df)
-                st.plotly_chart(fig_timeline, use_container_width=True)
-
-                st.markdown("#### Detailed Chronological Event Narrative Table")
-                display_cols = [
-                    "timestamp", "event_type", "category", "source", "destination",
-                    "port", "protocol", "bytes", "action", "description"
-                ]
-                st.dataframe(
-                    _safe_styler_map(
-                        timeline_df[display_cols].style,
-                        lambda val: "background-color: rgba(239, 68, 68, 0.2)" if val == "ALERT_TRIGGER" else "",
-                        subset=["event_type"],
-                    ),
-                    use_container_width=True,
-                    height=350,
-                )
-
-    # --------------------------------------------------------------------------
-    # Tab 3: Host Communication Graph
-    # --------------------------------------------------------------------------
-    with tab3:
-        st.markdown("### Host Interaction Network Topology & Blast Radius")
-        with st.spinner("Constructing NetworkX communication graph..."):
-            comm_graph = build_communication_graph(flow_df, flagged_ips=flagged_ips)
-            fig_graph = generate_network_graph_figure(comm_graph)
-            st.plotly_chart(fig_graph, use_container_width=True)
-
-        st.markdown("#### Host Centrality & Traffic Volume Metrics")
-        host_metrics = calculate_host_metrics(comm_graph)
-        if host_metrics:
-            metrics_df = pd.DataFrame(list(host_metrics.values()))
-            metrics_df.sort_values(by="total_bytes", ascending=False, inplace=True)
-            st.dataframe(
-                _safe_styler_map(
-                    metrics_df.style,
-                    lambda v: "color: #EF4444; font-weight: bold" if v is True else "",
-                    subset=["is_flagged"],
-                ),
-                use_container_width=True,
-                height=250,
-            )
-
-    # --------------------------------------------------------------------------
-    # Tab 4: Forensic Report Export
-    # --------------------------------------------------------------------------
-    with tab4:
-        st.markdown("### 📄 Incident Forensic Report Generator")
-        if not scored_incidents:
-            st.info("No incidents detected to generate report.")
-        else:
-            rep_incident = scored_incidents[0]
-            report_text = generate_incident_markdown_report(rep_incident)
+            active_inc = incidents[0]
+            dossier_text = generate_forensic_dossier(active_inc, df)
 
             st.download_button(
-                label="📥 Download Forensic Markdown Report",
-                data=report_text,
-                file_name=f"NetSleuth_Report_{rep_incident.incident_id}.md",
+                label=f"Export Incident Dossier ({active_inc['incident_id']}.md)",
+                data=dossier_text,
+                file_name=f"Forensic_Dossier_{active_inc['incident_id']}.md",
                 mime="text/markdown",
+                use_container_width=True
             )
 
-            st.markdown("#### Live Report Preview")
-            st.markdown(report_text)
+            with st.expander("Live Forensic Dossier Preview", expanded=True):
+                st.markdown(dossier_text)
 
-    # --------------------------------------------------------------------------
-    # Tab 5: Raw Flow Telemetry
-    # --------------------------------------------------------------------------
-    with tab5:
-        st.markdown("### 📋 Normalized Network Flow Records")
-        st.caption(f"Showing flow records from source: `{source_name}` (Sorted by UTC timestamp)")
+    with eval_col:
+        st.markdown("#### Scientific Evaluation Benchmarks (Ground Truth)")
+        st.write("Quantitative classification accuracy measured across canonical & extended benchmark datasets:")
 
-        search_query = st.text_input("Filter by IP, Protocol, or Port", "")
-        filtered_df = flow_df
-        if search_query:
-            q = search_query.strip().lower()
-            mask = (
-                filtered_df["src_ip"].str.lower().str.contains(q)
-                | filtered_df["dst_ip"].str.lower().str.contains(q)
-                | filtered_df["protocol"].str.lower().str.contains(q)
-                | filtered_df["dst_port"].astype(str).str.contains(q)
-            )
-            filtered_df = filtered_df[mask]
+        all_scenario_dfs = {}
+        for path in scenario_files:
+            fname = os.path.basename(path)
+            disp_title = scenario_display_names.get(fname, fname.replace(".csv", "").replace("_", " ").title())
+            sdf, _ = load_flows(path)
+            all_scenario_dfs[disp_title] = sdf
 
-        st.dataframe(filtered_df, use_container_width=True, height=450)
+        eval_table = evaluate_all_scenarios(all_scenario_dfs)
+        st.dataframe(eval_table, use_container_width=True)
 
-    # --------------------------------------------------------------------------
-    # Tab 6: Scientific Evaluation & Benchmark Metrics
-    # --------------------------------------------------------------------------
-    with tab6:
-        st.markdown("### 📊 Detection Performance & Ground-Truth Benchmarks")
-        st.caption("Zero-Label Leakage Evaluation: Detectors operate blind to ground-truth labels.")
-
-        eval_col1, eval_col2 = st.columns([1, 1])
-
-        with eval_col1:
-            st.markdown("#### Active Dataset Evaluation")
-            eval_res = evaluate_detection_performance(alerts, flow_df)
-            if eval_res.get("status") == "UNLABELED_DATASET":
-                st.info("ℹ️ The currently loaded dataset does not contain evaluation ground-truth labels ('is_attack').")
-            else:
-                m = eval_res.get("metrics", {})
-                cm = eval_res.get("confusion_matrix", {})
-
-                em1, em2, em3 = st.columns(3)
-                em1.metric("Precision", f"{m.get('precision', 0.0) * 100:.1f}%")
-                em2.metric("Recall", f"{m.get('recall', 0.0) * 100:.1f}%")
-                em3.metric("F1 Score", f"{m.get('f1_score', 0.0) * 100:.1f}%")
-
-                st.markdown("##### Confusion Matrix")
-                cm_df = pd.DataFrame(
-                    [
-                        [cm.get("tp", 0), cm.get("fn", 0)],
-                        [cm.get("fp", 0), cm.get("tn", 0)],
-                    ],
-                    index=["Actual Attack", "Actual Benign"],
-                    columns=["Predicted Attack", "Predicted Benign"],
-                )
-                st.table(cm_df)
-
-                if eval_res.get("class_breakdown"):
-                    st.markdown("##### Threat Class Breakdown")
-                    st.dataframe(pd.DataFrame(eval_res["class_breakdown"]).T, use_container_width=True)
-
-        with eval_col2:
-            st.markdown("#### Benchmark Suite Across All 5 Scenarios")
-            if st.button("🚀 Run Full Automated Benchmark Suite", key="btn_run_bench"):
-                with st.spinner("Benchmarking all 5 canonical scenarios..."):
-                    bench_df = benchmark_all_scenarios("data/synthetic", config=det_config)
-                    st.session_state["benchmark_df"] = bench_df
-
-            if "benchmark_df" in st.session_state:
-                st.dataframe(st.session_state["benchmark_df"], use_container_width=True)
-            else:
-                st.caption("Click the button above to execute automated evaluation across all 5 benchmark scenarios.")
-
-            st.markdown("---")
-            st.markdown(
-                """
-                **Scientific Formulas for Defense:**
-                - **Precision:** $\\frac{TP}{TP + FP}$ *(Alert Fidelity)*
-                - **Recall:** $\\frac{TP}{TP + FN}$ *(Detection Coverage)*
-                - **F1 Score:** $2 \\cdot \\frac{\\text{Precision} \\cdot \\text{Recall}}{\\text{Precision} + \\text{Recall}}$
-                - **False Positive Rate:** $\\frac{FP}{FP + TN}$
-                """
-            )
-
-
-if __name__ == "__main__":
-    main()
+        st.caption(
+            "Evaluation Metrics Definition:<br>"
+            "• True Positives (TP): Attack flows correctly flagged by detection heuristics.<br>"
+            "• False Positives (FP): Normal benign flows incorrectly flagged as threats.<br>"
+            "• False Negatives (FN): Attack flows that evaded detection.<br>"
+            "• Precision & Recall: A score of 1.0000 validates deterministic heuristic correctness.",
+            unsafe_allow_html=True
+        )
